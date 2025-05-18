@@ -298,6 +298,7 @@ class ObjectDetectionNode(Node):
                 # base_link 기준 포인트 생성
                 # base = self.set_point(BASE_LINK, 0.0, 0.0, 0.0)
                 # base_x, base_y, base_z = self.transform_to_map(base, BASE_LINK)
+                # if ...?
 
                 overlay_info.append({
                     "label": label,
@@ -319,11 +320,34 @@ class VehicleControlNode(Node):
     def __init__(self):
         super().__init__('vehicle_contorl_node')
         
-        self.create_client()
+        self._client = self.create_client(VehicleControl, ACCIDENT_SERVICE)
+        self.dispatched = False  # 출동 여부 상태 변수
+
+    def send_command(self, target_pose):
+        if not self._client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error(f"Service {ACCIDENT_SERVICE} not available")
+            return
+
+        request = VehicleControl.Request()
+        request.target = target_pose  # PoseStamped 타입
+
+        future = self._client.call_async(request)
+        future.add_done_callback(self._handle_response)
+
+    def _handle_response(self, future):
+        try:
+            response = future.result()
+            if response.accepted:
+                self.get_logger().info("✅ 출동 명령 수락됨.")
+                self.dispatched = True
+            else:
+                self.get_logger().warn("❌ 출동 명령 거부됨.")
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
 
 # ========================================= Server Node =========================================
 
-class Server1Node(Node):
+class Server1Node():
     def __init__(self):
         super().__init__('server1_node')
 
