@@ -23,6 +23,24 @@ import numpy as np
 
 import threading, os, sys, time
 
+class UtilForServer1():
+    def create_pose(self, pose) -> PoseStamped:
+        x, y, yaw_deg = pose
+        """x, y, yaw(도 단위) → PoseStamped 생성"""
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.nav_navigator.get_clock().now().to_msg()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+
+        yaw_rad = yaw_deg * 3.141592 / 180.0
+        q = quaternion_from_euler(0, 0, yaw_rad)
+        pose.pose.orientation.x = q[0]
+        pose.pose.orientation.y = q[1]
+        pose.pose.orientation.z = q[2]
+        pose.pose.orientation.w = q[3]
+        return pose
+
 # ========================================= Patrol Node =========================================
 # pose
 INIT_POSE = [0.2509, 0.7195, 270.0]
@@ -45,29 +63,14 @@ WAITING_FOR_DETECTION = 2.0
 
 class PatrolNode():
     def __init__(self):
+        self.util = UtilForServer1()
+
         # 두 navigator instance 생성
         self.dock_navigator = TurtleBot4Navigator()
         self.nav_navigator = BasicNavigator(node_name='navigator_robot1')
 
-    def create_pose(self, pose) -> PoseStamped:
-        x, y, yaw_deg = pose
-        """x, y, yaw(도 단위) → PoseStamped 생성"""
-        pose = PoseStamped()
-        pose.header.frame_id = 'map'
-        pose.header.stamp = self.nav_navigator.get_clock().now().to_msg()
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-
-        yaw_rad = yaw_deg * 3.141592 / 180.0
-        q = quaternion_from_euler(0, 0, yaw_rad)
-        pose.pose.orientation.x = q[0]
-        pose.pose.orientation.y = q[1]
-        pose.pose.orientation.z = q[2]
-        pose.pose.orientation.w = q[3]
-        return pose
-
     def get_init_pose(self) -> None:
-        initial_pose = self.create_pose(INIT_POSE)
+        initial_pose = self.util.create_pose(INIT_POSE)
         self.nav_navigator.setInitialPose(initial_pose)
         self.nav_navigator.get_logger().info(f'초기 위치 설정 중... {int(INIT_LOADING_TIME)}s')
         time.sleep(INIT_LOADING_TIME) #AMCL이 초기 pose 처리 시 필요한 시간과 TF를 얻을 수 있게 됨
@@ -81,7 +84,7 @@ class PatrolNode():
             self.dock_navigator.get_logger().info('언도킹 상태에서 시작')
 
     def get_goal_poses(self) -> list:
-        return [self.create_pose(GOAL_POSES_BOT[i]) for i in range(len(GOAL_POSES_BOT))]
+        return [self.util.create_pose(GOAL_POSES_BOT[i]) for i in range(len(GOAL_POSES_BOT))]
 
     def get_feedback(self, i) -> None:
         while not self.nav_navigator.isTaskComplete():
@@ -107,12 +110,27 @@ class PatrolNode():
                     self.nav_navigator.get_logger().info(f'{i+1}번째 경유지 도달. 복귀 중')
             else:
                 raise RuntimeError(f'{i+1}번째 경유지 이동 실패. 상태: {result}')
+            
+    def move_once(self, i, goal) -> None:
+        self.nav_navigator.goToPose(goal)
+
+        self.get_feedback(i)
+
+        result = self.nav_navigator.getResult()
+        if result == TaskResult.SUCCEEDED:
+            if i < 5:
+                self.nav_navigator.get_logger().info(f'{i+1}번째 경유지 도달. {WAITING_FOR_DETECTION}초 정지...')
+                time.sleep(WAITING_FOR_DETECTION)
+            else:
+                self.nav_navigator.get_logger().info(f'{i+1}번째 경유지 도달. 복귀 중')
+        else:
+            raise RuntimeError(f'{i+1}번째 경유지 이동 실패. 상태: {result}')
 
     def recovery(self, e: RuntimeError) -> None:
         self.nav_navigator.get_logger().error(f'오류 발생: {e} → 1번 위치로 재이동 시도')
 
         # 1번 위치 재이동 시도
-        recovery_pose = self.create_pose(GOAL_POSES_BOT[0])
+        recovery_pose = self.util.create_pose(GOAL_POSES_BOT[0])
         self.nav_navigator.goToPose(recovery_pose)
 
         self.get_feedback(0)
@@ -142,6 +160,7 @@ INIT_LOADING_TIME = 5.0
 BASE_LINK = "base_link"
 # XYZ = ["x", "y", "z"]
 # MAKE_XYZ_DICT = lambda x: {k: v for k, v in zip(XYZ, x)}
+ACCIDENT = 'accident'
 
 # Topic
 RGB_TOPIC = "/robot1/oakd/rgb/preview/image_raw"
@@ -150,15 +169,18 @@ CAMERA_INFO_TOPIC = "/robot1/oakd/stereo/camera_info"
 MARKER_TOPIC = "/robot1/detected_objects_marker"
 
 class ObjectDetectionNode(Node):
-    def __init__(self):
+    def __init__(self, accident_callback=None):
         super().__init__('object_detection_node')
         self.get_logger().info("[1/5] 노드 초기화 시작...")
 
+        self.util = UtilForServer1()
         self.bridge = CvBridge()
         self.K = None
         self.latest_rgb = self.latest_depth = self.latest_rgb_msg = None
         self.overlay_info = []
         self.display_rgb = None
+        self.inference_timer = None
+        self.accident_callback = accident_callback
         self.lock = threading.Lock()
 
         if not os.path.exists(MODEL_PATH):
@@ -175,23 +197,21 @@ class ObjectDetectionNode(Node):
         self.get_logger().info(f"[3/5] TF2 Transform Listener 초기화 대기... {int(INIT_LOADING_TIME)}s")
         time.sleep(INIT_LOADING_TIME)
 
-        self.create_subscription(Image, RGB_TOPIC, self.rgb_callback, 1)
-        self.create_subscription(Image, DEPTH_TOPIC, self.depth_callback, 1)
-        self.create_subscription(CameraInfo, CAMERA_INFO_TOPIC, self.camera_info_callback, 1)
+        self.create_subscription(Image, RGB_TOPIC, self._rgb_callback, 1)
+        self.create_subscription(Image, DEPTH_TOPIC, self._depth_callback, 1)
+        self.create_subscription(CameraInfo, CAMERA_INFO_TOPIC, self._camera_info_callback, 1)
         self.get_logger().info(f"[4/5] 토픽 구독 완료:\n  RGB: {RGB_TOPIC}\n  Depth: {DEPTH_TOPIC}\n  CameraInfo: {CAMERA_INFO_TOPIC}")
 
         self.marker_pub = self.create_publisher(Marker, MARKER_TOPIC, 10)
         self.marker_id = 0
         self.get_logger().info(f"[5/5] 퍼블리셔 설정 완료\n  MAKER: {MARKER_TOPIC}")
 
-        self.create_timer(INFERENCE_PERIOD_SEC, self.inference_callback)
-
-    def camera_info_callback(self, msg):
+    def _camera_info_callback(self, msg):
         if self.K is None:
             self.K = np.array(msg.k).reshape(3, 3)
             self.get_logger().info(f"CameraInfo 수신: fx={self.K[0,0]:.2f}, fy={self.K[1,1]:.2f}, cx={self.K[0,2]:.2f}, cy={self.K[1,2]:.2f}")
 
-    def rgb_callback(self, msg):
+    def _rgb_callback(self, msg):
         try:
             img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             with self.lock:
@@ -201,7 +221,7 @@ class ObjectDetectionNode(Node):
         except Exception as e:
             self.get_logger().error(f"RGB conversion error: {e}")
 
-    def depth_callback(self, msg):
+    def _depth_callback(self, msg):
         try:
             depth = self.bridge.imgmsg_to_cv2(msg, "passthrough")
             with self.lock:
@@ -209,16 +229,16 @@ class ObjectDetectionNode(Node):
         except Exception as e:
             self.get_logger().error(f"Depth conversion error: {e}")
 
-    def set_point(self, frame_id, x, y, z):
+    def _set_point(self, frame_id, x, y, z):
         point = PointStamped()
         point.header.frame_id = frame_id
         point.header.stamp = RclTime().to_msg()
         point.point.x, point.point.y, point.point.z = x, y, z
         return point
 
-    def transform_to_map(self, point: PointStamped, class_name: str):
+    def _transform_to_map(self, point: PointStamped, class_name: str):
         try:
-            map = self.tf_buffer.transform( point, "map", timeout=rclpy.duration.Duration(seconds=1.0))
+            map = self.tf_buffer.transform(point, "map", timeout=rclpy.duration.Duration(seconds=0.5))
             x, y, z = map.point.x, map.point.y, map.point.z
             self.get_logger().info(f"[TF] {class_name} → map: (x={x:.2f}, y={y:.2f}, z={z:.2f})")
             return x, y, z
@@ -226,7 +246,7 @@ class ObjectDetectionNode(Node):
             self.get_logger().warn(f"[TF] class={class_name} 변환 실패: {e}")
             return float("nan"), float("nan"), float("nan")
 
-    def publish_marker(self, x, y, z, label):
+    def _publish_marker(self, x, y, z, label):
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -248,7 +268,7 @@ class ObjectDetectionNode(Node):
         marker.lifetime.sec = 3
         self.marker_pub.publish(marker)
 
-    def inference_callback(self):
+    def _inference_callback(self):
         with self.lock:
             rgb, depth, K, rgb_msg = (
                 self.latest_rgb,
@@ -289,17 +309,6 @@ class ObjectDetectionNode(Node):
                 conf = float(box.conf[0])
                 label = self.classNames[cls] if cls < len(self.classNames) else f"class_{cls}"
 
-                # object 기준 포인트 생성
-                obj = self.set_point(rgb_msg.header.frame_id, x, y, z)
-                obj_x, obj_y, obj_z = self.transform_to_map(obj, label)
-                if not np.isnan(obj_x):
-                    self.publish_marker(obj_x, obj_y, obj_z, label)
-
-                # base_link 기준 포인트 생성
-                # base = self.set_point(BASE_LINK, 0.0, 0.0, 0.0)
-                # base_x, base_y, base_z = self.transform_to_map(base, BASE_LINK)
-                # if ...?
-
                 overlay_info.append({
                     "label": label,
                     "conf": conf,
@@ -309,87 +318,163 @@ class ObjectDetectionNode(Node):
                 })
                 self.get_logger().info(f'overlay_info: {overlay_info}')
 
+                # object 기준 포인트 생성
+                obj = self._set_point(rgb_msg.header.frame_id, x, y, z)
+                obj_x, obj_y, obj_z = self._transform_to_map(obj, label)
+                if not np.isnan(obj_x):
+                    self._publish_marker(obj_x, obj_y, obj_z, label)
+
+                # base_link 기준 포인트 생성
+                # base = self._set_point(BASE_LINK, 0.0, 0.0, 0.0)
+                # base_x, base_y, base_z = self._transform_to_map(base, BASE_LINK)
+                
+                # server1의 콜백함수 실행
+                if label == ACCIDENT:
+                    self.accident_callback()
+
         with self.lock:
             self.overlay_info = overlay_info
 
-# ======================================= Vehicle Control =======================================
-# Constant
+    def create_callback_timer(self):
+        if self.inference_timer is None:
+            self.get_logger().info("🟢 감지 타이머 시작")
+            self.inference_timer = self.create_timer(INFERENCE_PERIOD_SEC, self._inference_callback)
+        else:
+            self.get_logger().warn("⚠️ 타이머가 이미 실행 중입니다.")
 
- 
+    def delete_callback_timer(self):
+        if self.inference_timer:
+            self.get_logger().info("🛑 감지 타이머 제거")
+            self.destroy_timer(self.inference_timer)  # Node에서 완전히 제거
+            self.inference_timer = None
+        else:
+            self.get_logger().warn("⚠️ 제거할 타이머가 없습니다.")
+
+# ======================================= Vehicle Control =======================================
 # Service
 ACCIDENT_SERVICE = "/robot1/accident_detected"
 
 class VehicleControlNode(Node):
     def __init__(self):
-        super().__init__('vehicle_contorl_node')
-        
+        super().__init__('vehicle_control_node')
         self._client = self.create_client(VehicleControl, ACCIDENT_SERVICE)
-        self.dispatched = False  # 출동 여부 상태 변수
 
-    def send_command(self, target_pose: PoseStamped):
+    def send_command(self, navigator: PatrolNode, target_pose: PoseStamped, response_callback=None):
+        # 이동 명령
+        self.get_logger().info(f'사고 발생: {target_pose} 위치로 turtlebot1 출동')
+        navigator.move_once(target_pose)
+        
+        # 차량 통제 명령
         if not self._client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error(f"Service {ACCIDENT_SERVICE} not available")
-            return
-        
-        if self.dispatched:
-            self.get_logger().error(f'Service {ACCIDENT_SERVICE} is already running')
+            if response_callback:
+                response_callback(False)  # 실패로 간주
             return
 
         request = VehicleControl.Request()
         request.pose = target_pose
 
         future = self._client.call_async(request)
-        future.add_done_callback(self._handle_response)
 
-    def _handle_response(self, future):
+        # 응답을 처리한 뒤, 콜백으로 결과를 서버에 넘김
+        if response_callback:
+            future.add_done_callback(lambda fut: self._handle_response(fut, response_callback))
+        else:
+            future.add_done_callback(self._handle_response)
+
+    def _handle_response(self, future, callback=None):
         try:
             response = future.result()
-            if response.accepted:
-                self.get_logger().info("✅ 출동 명령 수락됨.")
-                self.dispatched = True
-            else:
-                self.get_logger().warn("❌ 출동 명령 거부됨.")
+            accepted = response.accepted
+            msg = "✅ 출동 명령 수락됨." if accepted else "❌ 출동 명령 거부됨."
+            self.get_logger().info(msg)
+
+            if callback:
+                callback(accepted)
+
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
-
-    def set_dispatched(self, state: bool):
-        self.dispatched = state
+            if callback:
+                callback(False)
 
 # ========================================= Server Node =========================================
+# Constant
+CONTROL_POSE = [0.01, 0.01, 0.0]
 
-class Server1Node():
+class Server1():
     def __init__(self):
-        super().__init__('server1_node')
+        self.util = UtilForServer1()
+
+        # 전역 상태 관리
+        self.accident = False        # 사고 발생 여부
+        self.detecting = False       # 감지 중 여부
+        self.dispatching = False     # 출동 중 여부
+        self.patrol_exit = False     # 순찰 종료 여부
+        
+        # rclpy.init()
 
         self.patrol_node = PatrolNode()
-        self.object_detection_node = ObjectDetectionNode()
+        self.object_detection_node = ObjectDetectionNode(self.on_accident_detected)
         self.vehicle_control_node = VehicleControlNode()
 
-    def resume_patrols(self):
-        self.vehicle_control_node.set_dispatched(True)
-        
+    # ---------- 순찰 제어 ----------
+    def start_patrol(self):
+        self.patrol_node.get_init_pose()
+        self.patrol_node.undock()
+
+    def do_patorl(self):
+        # goal_poses = self.patrol_node.get_goal_poses()
+        # try:
+        #     self.patrol_node.move(goal_poses)
+        # except RuntimeError as e:
+        #     self.patrol_node.recovery(e)
+        pass
+
+    def exit_patrol(self):
+        self.patrol_node.dock()
+        self.patrol_node.terminate()
+    
+    # ---------- 탐지 제어 ----------
+    def on_accident_detected(self):
+        if not self.accident:
+            self.accident = True
+            self.send_control()         # 출동 명령
+
+            # self.detecting = False
+            # self.disable_detection()    # 감지 중단 등 필요하면
+
+            
+        # else:
+
+
+    def detect_accident(self):
+        pass
+
+    def enable_detection(self):
+        self.object_detection_node.create_callback_timer()
+
+    def disable_detection(self):
+        self.object_detection_node.delete_callback_timer()
+
+    # ---------- 차량 통제 ----------
+    def send_control(self):
+        if self.dispatching:
+            print("[Server1] 🚨 이미 출동된 상태입니다.")
+            return
+
+        control_pose = self.util.create_pose(CONTROL_POSE)
+
+        def callback(accepted):
+            if accepted:
+                print("[Server1] 출동 명령 수락됨 → 상태 업데이트")
+                self.dispatching = True
+            else:
+                print("[Server1] 출동 명령 거부됨 → 상태 유지")
+
+        self.vehicle_control_node.send_command(control_pose, response_callback=callback)
+
+    def reset_control_state(self):
+        self.dispatching = False
 
 def main():
-    rclpy.init()
-
-    
-
-    # server node 생성
-    node = Server1Node()
-
-    executor = MultiThreadedExecutor(num_threads=4)
-    executor.add_node(node)
-
-    executor_thread = threading.Thread(target=executor.spin, daemon=True)
-    executor_thread.start()
-
-    try:
-        pass
-    except Exception as e:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-        cv2.destroyAllWindows()
-        print("Shutdown complete.")
-        sys.exit(0)
+    pass
