@@ -77,12 +77,12 @@ class PatrolNode(Node):
 
 # ========================================= 차량 통제 서비스 노드 =========================================
 # Server1이 사고를 감지했을 때 호출하는 서비스 처리 노드
-# 순찰을 중지하고 Turtlebot2에게 사고 출동 요청을 발행
+# 순찰을 중지하고 TB2에게 사고 출동 요청을 발행
 class VehicleControlNode(Node):
     def __init__(self, patrol_node: PatrolNode, dispatch_pub):
         super().__init__('vehicle_control_node')
         self.patrol_node = patrol_node
-        self.dispatch_pub = dispatch_pub        # Turtlebot2에게 메시지 보낼 퍼블리셔
+        self.dispatch_pub = dispatch_pub        # TB2에게 메시지 보낼 퍼블리셔
 
         self.create_service(
             VehicleControl,
@@ -91,9 +91,15 @@ class VehicleControlNode(Node):
         )
 
     def handle_vehicle_control(self, request, response):
-        # 사고 발생 → 순찰 정지 → Turtlebot2 출동 명령 전송
+        # 사고 발생 → 순찰 정지 → TB2 출동 명령 전송
         self.get_logger().warn('차량 통제 명령 수신 → 순찰 정지 및 출동 요청')
         self.patrol_node.patrol_paused = True
+
+        # TB2 출동여부 확인 후 출동 명령 전송여부 결정
+        if self.turtlebot2_dispatched:
+            self.get_logger().warn('Turtlebot2가 이미 출동 중입니다. 출동 명령 생략')
+            response.success = False
+            return response
 
         # Turtlebot2 출동 명령 생성 및 퍼블리셔
         dispatch_msg = DispatchCommand()
@@ -134,7 +140,7 @@ class RecoveryReportNode(Node):
 
 # ========================================= 노드 통합 서버 =========================================
 # 각 노드를 통합하고 실행을 관리하는 상위 클래스
-class Turtlebot1Server:
+class Turtlebot1Node:
     def __init__(self):
         self.patrol_node = PatrolNode()
 
@@ -152,7 +158,7 @@ class Turtlebot1Server:
 # ========================================= 메인 실행 =========================================
 def main(args=None):
     rclpy.init(args=args)
-    server = Turtlebot1Server()
+    node = Turtlebot1Node()
 
     # MultiThreadedExecutor 사용: 노드들을 병렬로 실행
     executor = MultiThreadedExecutor()
