@@ -109,22 +109,26 @@ class VehicleControlReceiverNode(Node):
 
     def vehicle_control_callback(self, request, response):
         # 서비스 요청 수신 시 순찰 중단, 경보 발생, 출동 명령 전송
-        self.get_logger().warn('차량 통제 명령 수신 → 순찰 일시 정지')
-        self.patrol_node.patrol_paused = True
-        self.trigger_alert_display()
-        self.trigger_alert_sound()
+        self.get_logger().warn('차량 통제 명령 수신 → 순찰 일시 정지')  
+        self.patrol_node.patrol_paused = True   # 순찰 일시 정지
+        
+        self.trigger_alert_display()            # 디스플레이 경고
+        self.trigger_alert_sound()              # 경고음 출력
 
+        # 출동 명령 메시지 생성 및 퍼블리시
         dispatch_msg = DispatchCommand()
-        dispatch_msg.pose = request.pose
+        dispatch_msg.pose = request.pose        # Server1이 보낸 사고 위치 전달
         self.dispatch_pub.publish(dispatch_msg)
 
-        response.success = True
+        response.success = True                 # 서비스 응답 반환
         return response
 
     def trigger_alert_display(self):
+        # 경고 메시지 출력 (GUI 또는 디스플레이 상에)
         self.get_logger().warn('경고 메시지 표시')
 
     def trigger_alert_sound(self):
+        # beep 코드 작성
         self.get_logger().warn('경고음 출력')
 
 # ========================================= 복귀 수신 노드 =========================================
