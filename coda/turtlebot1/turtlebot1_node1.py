@@ -4,6 +4,13 @@ from rclpy.node import Node
 from rclpy.action import ActionServer
 from rclpy.executors import MultiThreadedExecutor
 
+#nav
+from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
+from tf_transformations import quaternion_from_euler
+import tf2_ros
+import tf2_geometry_msgs
+
 # 메시지 타입 import
 from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped
@@ -21,6 +28,9 @@ class PatrolNode(Node):
     def __init__(self):
         super().__init__('patrol_node')
 
+        # Nav2를 제어하기 위한 기본 navigator 객체 생성
+        self.navigator = BasicNavigator(node=self)
+
         # Patrol.action을 처리하는 Action Server 생성
         self._action_server = ActionServer(
             self,
@@ -35,10 +45,24 @@ class PatrolNode(Node):
         self.current_goal_index = 0         # 순찰 중인 waypoint index
         self.waypoints = []                 # Server1이 넘겨주는 waypoint 리스트
 
-    def navigate_to(self, pose: PoseStamped):
-        # 실제 이동 로직
-        self.get_logger().info(f'이동 중: ({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
-        time.sleep(2)       # 추후 Nav2로 대체
+    def navigate_to(self, pose: PoseStamped) -> bool:
+        # Nav2 기반으로 지정된 pose까지 로봇 이동 수행
+        self.navigator.goToPose(pose)  # pose 이동 명령
+        
+        # 이동이 완료될 때까지 대기하며 피드백 출력
+        while not self.navigator.isTaskComplete():
+            feedback = self.navigator.getFeedback()
+            if feedback:
+                self.get_logger().info(f'이동 중... 남은 거리: {feedback.distance_remaining:.2f} m')
+
+        # 이동 결과 확인
+        result = self.navigator.getResult()
+        if result == TaskResult.SUCCEEDED:
+            self.get_logger().info("도착 완료")
+            return True
+        else:
+            self.get_logger().warn("도착 실패")
+            return False
 
     async def execute_patrol_callback(self, goal_handle):
         # Server1이 순찰 Goal을 보내면 실행되는 메소드
@@ -97,7 +121,7 @@ class VehicleControlNode(Node):
 
         # TB2 출동여부 확인 후 출동 명령 전송여부 결정
         if self.turtlebot2_dispatched:
-            self.get_logger().warn('Turtlebot2가 이미 출동 중입니다. 출동 명령 생략')
+            self.get_logger().warn('Turtlebot2가 이미 출동 중입니다')
             response.success = False
             return response
 
