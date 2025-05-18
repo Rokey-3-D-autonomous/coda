@@ -136,7 +136,7 @@ class PatrolNode():
 HOME_PATH = os.path.expanduser("~")  # 현재 사용자의 홈 디렉토리 경로
 MODEL_PATH = os.path.join(HOME_PATH, 'rokey_ws', 'model', 'best.pt')  # 모델 경로
 TARGET_CLASS_ID = [0, 3]
-INFERENCE_PERIOD_SEC = 1.0 / 30  # 30Hz 추론 주기
+INFERENCE_PERIOD_SEC = 1.0 / 20  # 30Hz 추론 주기
 INIT_LOADING_TIME = 5.0
 
 BASE_LINK = "base_link"
@@ -313,6 +313,9 @@ class ObjectDetectionNode(Node):
             self.overlay_info = overlay_info
 
 # ======================================= Vehicle Control =======================================
+# Constant
+
+ 
 # Service
 ACCIDENT_SERVICE = "/robot1/accident_detected"
 
@@ -323,13 +326,17 @@ class VehicleControlNode(Node):
         self._client = self.create_client(VehicleControl, ACCIDENT_SERVICE)
         self.dispatched = False  # 출동 여부 상태 변수
 
-    def send_command(self, target_pose):
+    def send_command(self, target_pose: PoseStamped):
         if not self._client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error(f"Service {ACCIDENT_SERVICE} not available")
             return
+        
+        if self.dispatched:
+            self.get_logger().error(f'Service {ACCIDENT_SERVICE} is already running')
+            return
 
         request = VehicleControl.Request()
-        request.target = target_pose  # PoseStamped 타입
+        request.pose = target_pose
 
         future = self._client.call_async(request)
         future.add_done_callback(self._handle_response)
@@ -345,17 +352,21 @@ class VehicleControlNode(Node):
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
 
+    def set_dispatched(self, state: bool):
+        self.dispatched = state
+
 # ========================================= Server Node =========================================
 
 class Server1Node():
     def __init__(self):
         super().__init__('server1_node')
 
-        patrol_node = PatrolNode()
-        object_detection_node = ObjectDetectionNode()
-        vehicle_control_node = VehicleControlNode()
+        self.patrol_node = PatrolNode()
+        self.object_detection_node = ObjectDetectionNode()
+        self.vehicle_control_node = VehicleControlNode()
 
-
+    def resume_patrols(self):
+        self.vehicle_control_node.set_dispatched(True)
         
 
 def main():
