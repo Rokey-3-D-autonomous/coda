@@ -4,6 +4,7 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from coda_interfaces.srv import VehicleControl
 
+# img
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import numpy as np
@@ -11,13 +12,12 @@ import open3d as o3d
 import datetime
 import os
 import message_filters
+import sys
 
 # nav
 from nav2_simple_commander.robot_navigator import BasicNavigator
 from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
-import tf2_ros
-import tf2_geometry_msgs  
 import time
 
 CAPTURE_DISTANCE = 1.0 * 1.414
@@ -48,29 +48,42 @@ class CamPoseNode(Node):
         return response
 
 # ==========촬영 명령=====================
+
+ROBOT_NAMESPACE = 'robot0'
+RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/preview/image_raw'
+DEPTH_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/image_raw'
+CAMERA_INFO_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/camera_info'
+
 class CheeseNode(Node):
     def __init__(self):
         super().__init__('cheese_ndoe')
         
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-
         self.dock_navigator = TurtleBot4Navigator()
-        self.nav_navigator = BasicNavigator(node_name='navigator_robot2')
+        self.nav_navigator = BasicNavigator(node_name='navigator_robot2')   # node name 변경 필요
 
         self.amclposesub = self.create_subscription(
             PoseWithCovarianceStamped,
             '/robot0/amcl_pose',
             self.amcl_callback, 10)
         
+        self.bridge = CvBridge()
 
+        rgb_sub = message_filters.Subscriber(self, Image, RGB_TOPIC)
+        depth_sub = message_filters.Subscriber(self, Image, DEPTH_TOPIC)
+        info_sub = message_filters.Subscriber(self, CameraInfo, CAMERA_INFO_TOPIC)
+
+        self.ts = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub, info_sub], queue_size=10, slop=0.1)
         
     def amcl_callback(self,msg):
         self.current_pose = PoseStamped()
         self.current_pose.header = msg.header
         self.current_pose.pose = msg.pose.pose
-        self.current_yaw = euler_from_quaternion(self.current_pose.pose.orientation, 'z')[2] * (180 / 3.141592)
+        current_q = msg.pose.pose.orientation
+        self.current_yaw = euler_from_quaternion([current_q.x, current_q.y, current_q.z, current_q.w],'z')[2] * (180 / 3.141592)
         
+    def get_current_pose(self):
+        return (self.current_pose.pose.position.x, self.current_pose.pose.position.y , self.current_yaw)
+    
     def create_pose(self, pose) -> PoseStamped:
         x, y, yaw_deg = pose
         """x, y, yaw(도 단위) → PoseStamped 생성"""
@@ -89,7 +102,7 @@ class CheeseNode(Node):
         return pose
     
     def get_init_pose(self) -> None:
-        self.initial_pose = self.create_pose(-0.01, -0.01, 0.0, self.nav_navigator)
+        self.initial_pose = self.create_pose((-0.01, -0.01, 0.0))
         self.nav_navigator.setInitialPose(self.initial_pose)
         self.nav_navigator.get_logger().info(f'초기 위치 설정 중...')
         time.sleep(1.0) #AMCL이 초기 pose 처리 시 필요한 시간과 TF를 얻을 수 있게 됨
@@ -115,9 +128,6 @@ class CheeseNode(Node):
         self.nav_start = self.nav_navigator.get_clock().now()
         self.nav_navigator.followWaypoints(self.waypoints)
 
-    def get_current_pose(self):
-        return (self.current_pose.pose.position.x, self.current_pose.pose.position.y , self.current_yaw)
-
     def get_feedback(self) -> None:
         while not self.nav_navigator.isTaskComplete():
             feedback = self.nav_navigator.getFeedback()
@@ -133,9 +143,13 @@ class CheeseNode(Node):
                 
                 for cam_pose in self.cam_poses:
                     if cam_pose == self.get_current_pose():
+                        self.nav_navigator.get_logger().info('촬영 포인트 도착. 사진을 촬영합니다.')
                         time.sleep(WAITING_FOR_IMAGE)
-
                         
+                        self.saved = False
+                        # self.ts.registerCallback(self.capture_callback)
+                        self.nav_navigator.get_logger().info('사진 촬영 완료.')
+
     def gohome(self):
         self.nav_navigator.get_logger().info('도킹 위치로 복귀합니다.')
         self.nav_navigator.goToPose(self.dock_pose)
@@ -150,7 +164,11 @@ class CheeseNode(Node):
     def terminate(self) -> None:
         self.dock_navigator.destroy_node()
         self.nav_navigator.destroy_node()
-
+        
+    def capture_callback(self, rgb_msg, depth_msg, cam_info_msg):
+        if self.saved:
+            return
+    
 
 # ==========복귀 명령=====================
 class CompleteNode(Node):
