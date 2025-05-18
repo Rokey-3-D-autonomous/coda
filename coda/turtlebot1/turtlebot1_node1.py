@@ -162,9 +162,9 @@ def main(args=None):
 
     # MultiThreadedExecutor 사용: 노드들을 병렬로 실행
     executor = MultiThreadedExecutor()
-    executor.add_node(server.patrol_node)
-    executor.add_node(server.vehicle_control_node)
-    executor.add_node(server.recovery_node)
+    executor.add_node(node.patrol_node)
+    executor.add_node(node.vehicle_control_node)
+    executor.add_node(node.recovery_node)
 
     try:
         executor.spin()
@@ -172,9 +172,9 @@ def main(args=None):
         pass
     finally:
         # 종료 시 리소스 정리
-        server.patrol_node.destroy_node()
-        server.vehicle_control_node.destroy_node()
-        server.recovery_node.destroy_node()
+        node.patrol_node.destroy_node()
+        node.vehicle_control_node.destroy_node()
+        node.recovery_node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':
