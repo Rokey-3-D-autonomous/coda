@@ -671,3 +671,6 @@ def main():
         rclpy.shutdown()
         cv2.destroyAllWindows()
         sys.exit(0)
+
+if __name__ == '__main__':
+    main()

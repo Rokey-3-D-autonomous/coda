@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'coda = coda.server1.server1:main'
         ],
     },
 )
