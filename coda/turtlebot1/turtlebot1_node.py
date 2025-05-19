@@ -1,176 +1,178 @@
+import os
+import time
+
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time as RclTime
-from rclpy.action import ActionServer
-from std_msgs.msg import String
-from geometry_msgs.msg import PoseStamped
 from rclpy.executors import MultiThreadedExecutor
-from geometry_msgs.msg import PoseStamped, PointStamped
-from sensor_msgs.msg import Image, CameraInfo
 
-# nav
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
+
+from cv_bridge import CvBridge
+import cv2
+
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
 from tf_transformations import quaternion_from_euler
-import tf2_ros
-import tf2_geometry_msgs
 
-# 사용자 정의 인터페이스
-from coda_interfaces.action import Patrol
-from coda_interfaces.srv import VehicleControl
-from coda_interfaces.msg import DispatchCommand
-
-import threading, os, sys, time
-
-# ========================================= 순찰 노드 =========================================
-# Server1으로부터 Action Goal을 수신해 순찰 수행
-class PatrolNode(Node):
+# ===================== [1] 카메라 퍼블리셔 노드 =====================
+class CameraPublisherNode(Node):
     def __init__(self):
-        super().__init__('patrol_node')
+        super().__init__('camera_publisher_node')
+        self.bridge = CvBridge()
 
-        # Server1의 ActionClient와 통신하기 위한 ActionServer 생성
-        self._action_server = ActionServer(
-            self,
-            Patrol,                         # 사용자 정의 Patrol 액션 타입
-            '/turtlebot1/patrol',           # Server1이 이 토픽으로 goal을 보냄
-            self.execute_patrol_callback    # goal 수신 시 실행할 콜백 함수
-        )
+        # Server1이 YOLO 추론에 사용할 카메라 이미지 송신 토픽
+        self.pub = self.create_publisher(Image, '/robot1/camera/image_raw', 10)
+        
+        # 10Hz 주기로 카메라 이미지 publish
+        self.timer = self.create_timer(1.0 / 10, self.publish_image)  # 10Hz
+
+        self.cap = cv2.VideoCapture(0)  # 기본 카메라
+        if not self.cap.isOpened():
+            self.get_logger().error('카메라를 열 수 없습니다.')
+
+    def publish_image(self):
+        ret, frame = self.cap.read()
+        if ret:
+            msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+            self.pub.publish(msg)
+
+    def destroy_node(self):
+        # 종료 시 카메라 해제
+        self.cap.release()
+        super().destroy_node()
+
+# ===================== [2] 터틀봇 컨트롤 노드 =====================
+class TurtlebotControllerNode(Node):
+    def __init__(self):
+        super().__init__('turtlebot1_controller_node')
+        
+        # Nav2 기반 이동을 위한 navigator 생성
+        self.navigator = BasicNavigator(node=self)
 
         # 상태 변수
-        self.patrol_paused = False          # 사고 발생 시 순찰 일시 정지 여부
-        self.patrol_completed = False       # 전체 순찰 완료 여부
-        self.current_goal_index = 0         # 현재 순찰 중인 waypoint 인덱스
+        self.current_waypoints = []     # 서버로부터 받은 순찰 경로 리스트
+        self.current_index = 0          # 현재 진행 중인 waypoint index
+        self.is_patrolling = False      # 순찰 중 여부
+        self.is_dispatched = False      # 사고 출동 중 여부
 
-        # 순찰에 사용할 waypoint 경로 로드
-        self.waypoints = self.load_waypoints()
+        # 명령 구독
+        self.create_subscription(String, '/robot1/command', self.command_callback, 10)
 
-    def load_waypoints(self):
-        # waypoint 좌표 업데이트 필요
-        return [
-            [2.5, 0.0, 0.0],    # 0. 출발점
-            [2.5, 2.5, 180.0],   # 1. 오른쪽 상단
-            [0.0, 2.5, 270.0],   # 2. 왼쪽 상단
-            [0.0, 0.0, 0.0],     # 3. 왼쪽 하단
-            [2.5, 0.0, 90.0],    # 4. 오른쪽 하단
-        ]
+        # 순찰 경로 구독
+        self.create_subscription(PoseStamped, '/robot1/patrol_waypoints', self.waypoint_callback, 10)
 
-    def navigate_to(self, pose):
-        # 실제 로봇을 이동시키는 부분
-        self.get_logger().info(f'\U0001f6f5 {pose}로 이동 중...')
-        time.sleep(2)
+        # 사고 위치 구독
+        self.create_subscription(PoseStamped, '/robot1/accident_pose', self.accident_callback, 10)
 
-    async def execute_patrol_callback(self, goal_handle):
-        # Action goal 수신 시 호출
-        self.get_logger().info('순찰 명령 수신')
+    def waypoint_callback(self, msg: PoseStamped):
+        self.get_logger().info(f'순찰 경로 수신: {msg.pose.position}')
+        self.current_waypoints.append(msg)
 
-        feedback_msg = Patrol.Feedback()    # 피드백 메시지 객체 생성
-        self.patrol_completed = False       # 순찰 완료 초기화
-        self.patrol_paused = False          # 순찰 정지 상태 해제
-        self.current_goal_index = 0
+    def command_callback(self, msg: String):
+        # 서버로부터 명령 수신
+        cmd = msg.data.lower()
+        self.get_logger().info(f'명령 수신: {cmd}')
+        if cmd == 'start_patrol':
+            self.start_patrol()
+        elif cmd == 'resume_patrol':
+            self.resume_patrol()
+        elif cmd == 'play_alarm':
+            self.play_alarm()
+        elif cmd == 'terminate':
+            self.terminate()
 
-        # 각 waypoint를 순차적으로 이동
-        for i, pose in enumerate(self.waypoints):
-            self.current_goal_index = i
-            
-            # 차량 통제로 인한 일시 정지 대응
-            while self.patrol_paused:
-                self.get_logger().info('순찰 일시 정지됨. 재개 대기 중...')
-                time.sleep(1)
-
-            self.navigate_to(pose)
-
-            # 이동 결과 피드백 전송
-            feedback_msg.status = f'{i+1}/{len(self.waypoints)} 도착'
-            goal_handle.publish_feedback(feedback_msg)
-
-        # 모든 경로 완료. ActionResult 반환
-        self.patrol_completed = True
-        goal_handle.succeed()
-
-        result = Patrol.Result()
-        result.success = True
-        self.get_logger().info('순찰 완료')
-        return result
-
-# ========================================= 차량 통제 노드 =========================================
-# 사고 발생 시 Server1이 호출하는 VehicleControl 서비스 서버. 순찰을 중단시키고 TB2 출동 명령 발송
-class VehicleControlReceiverNode(Node):
-    def __init__(self, patrol_node: PatrolNode, dispatch_publisher):
-        super().__init__('vehicle_control_node')
-
-        # 서비스 서버 생성: Server1이 '/turtlebot1/vehicle_control'로 요청 보냄
-        self._srv = self.create_service(
-            VehicleControl,
-            '/turtlebot1/vehicle_control',      # 서비스 이름
-            self.vehicle_control_callback       # 요청 수신 시 실행할 함수
-        )
-        self.patrol_node = patrol_node          # 순찰 노드 참조 (상태 제어 목적)
-        self.dispatch_pub = dispatch_publisher  # TB2로 사고 출동 명령 퍼블리시
-
-    def vehicle_control_callback(self, request, response):
-        # 서비스 요청 수신 시 순찰 중단, 경보 발생, 출동 명령 전송
-        self.get_logger().warn('차량 통제 명령 수신 → 순찰 일시 정지')  
-        self.patrol_node.patrol_paused = True   # 순찰 일시 정지
+    def accident_callback(self, msg: PoseStamped):
+        # 사고 감지 → 사고 위치로 출동
+        self.get_logger().warn(f'사고 위치 수신 → 출동 시작')
+        self.is_dispatched = True
         
-        self.trigger_alert_display()            # 디스플레이 경고
-        self.trigger_alert_sound()              # 경고음 출력
+        # 출동 명령
+        self.navigator.goToPose(msg)
 
-        # 출동 명령 메시지 생성 및 퍼블리시
-        dispatch_msg = DispatchCommand()
-        dispatch_msg.pose = request.pose        # Server1이 보낸 사고 위치 전달
-        self.dispatch_pub.publish(dispatch_msg)
+        while not self.navigator.isTaskComplete():
+            fb = self.navigator.getFeedback()
+            if fb:
+                self.get_logger().info(f'출동 중... 남은 거리: {fb.distance_remaining:.2f} m')
 
-        response.success = True                 # 서비스 응답 반환
-        return response
-
-    def trigger_alert_display(self):
-        # 경고 메시지 출력 (GUI 또는 디스플레이 상에)
-        self.get_logger().warn('경고 메시지 표시')
-
-    def trigger_alert_sound(self):
-        # beep 코드 작성
-        self.get_logger().warn('경고음 출력')
-
-# ========================================= 복귀 수신 노드 =========================================
-class RecoveryReceiverNode(Node):
-    def __init__(self, patrol_node: PatrolNode):
-        super().__init__('recovery_receiver_node')
-        self.create_subscription(String, '/turtlebot1/recovery_command', self.recovery_callback, 10)
-        self.patrol_node = patrol_node
-
-    def recovery_callback(self, msg):
-        self.get_logger().info('복귀 명령 수신')
-        if self.patrol_node.patrol_completed:
-            self.get_logger().info('복귀 완료 → Server1에 종료 메시지 송신 필요')
+        result = self.navigator.getResult()
+        if result == TaskResult.SUCCEEDED:
+            self.get_logger().info('출동 완료')
         else:
+            self.get_logger().error('출동 실패')
+
+    def start_patrol(self):
+        # 순찰 시작 명령 수신 시
+        if not self.current_waypoints:
+            self.get_logger().warn('순찰 경로가 없음')
+            return
+        self.is_patrolling = True
+        self.current_index = 0
+        self.patrol_loop()
+
+    def resume_patrol(self):
+        # 순찰 재개 명령 수신 시
+        if self.current_index < len(self.current_waypoints):
             self.get_logger().info('순찰 재개')
-            self.patrol_node.patrol_paused = False
+            self.is_patrolling = True
+            self.patrol_loop()
+        else:
+            self.get_logger().info('순찰 이미 완료됨')
 
-# ========================================= 메인 서버 노드 =========================================
-class Turtlebot1Server():
-    def __init__(self):
-        self.patrol_node = PatrolNode()
-        self.dispatch_pub = self.patrol_node.create_publisher(DispatchCommand, '/turtlebot2/dispatch_command', 10)
-        self.vehicle_control_node = VehicleControlReceiverNode(self.patrol_node, self.dispatch_pub)
-        self.recovery_node = RecoveryReceiverNode(self.patrol_node)
+    def patrol_loop(self):
+        # 순찰 로직 수행
+        while self.is_patrolling and self.current_index < len(self.current_waypoints):
+            pose = self.current_waypoints[self.current_index]
+            self.get_logger().info(f'🚶 순찰 {self.current_index + 1}/{len(self.current_waypoints)} 이동 중')
+            
+            # 이동 시작
+            self.navigator.goToPose(pose)
 
-# ========================================= 실행 메인 함수 =========================================
+            while not self.navigator.isTaskComplete():
+                fb = self.navigator.getFeedback()
+                if fb:
+                    self.get_logger().info(f'📡 남은 거리: {fb.distance_remaining:.2f} m')
+
+            result = self.navigator.getResult()
+            if result == TaskResult.SUCCEEDED:
+                self.get_logger().info('도착 완료')
+            else:
+                self.get_logger().warn('이동 실패')
+
+            self.current_index += 1
+
+        self.get_logger().info('순찰 완료')
+        self.is_patrolling = False
+
+    def play_alarm(self):
+        # 서버가 알람 출력 요청 시
+        self.get_logger().warn('경보 울림 (사운드/시각적 처리 필요)')
+
+    def terminate(self):
+        # 종료 명령 수신 시
+        self.get_logger().info('종료 명령 수신 → 도킹 및 종료')
+        self.navigator.lifecycleShutdown()
+        rclpy.shutdown()
+
+# ===================== [3] 메인 실행 =====================
 def main(args=None):
     rclpy.init(args=args)
-    server = Turtlebot1Server()
+    
+    # 카메라 노드, 컨트롤 노드 실행
+    camera_node = CameraPublisherNode()
+    control_node = TurtlebotControllerNode()
+
     executor = MultiThreadedExecutor()
-    executor.add_node(server.patrol_node)
-    executor.add_node(server.vehicle_control_node)
-    executor.add_node(server.recovery_node)
+    executor.add_node(camera_node)
+    executor.add_node(control_node)
 
     try:
         executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        server.patrol_node.destroy_node()
-        server.vehicle_control_node.destroy_node()
-        server.recovery_node.destroy_node()
+        camera_node.destroy_node()
+        control_node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':
