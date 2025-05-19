@@ -1,13 +1,18 @@
 import os
 import time
+import threading
+import tkinter as tk
 
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 
+from irobot_create_msgs.msg import AudioNoteVector, AudioNote
+from builtin_interfaces.msg import Duration
+
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String
+from std_msgs.msg import Int32
 
 from cv_bridge import CvBridge
 import cv2
@@ -15,7 +20,9 @@ import cv2
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from tf_transformations import quaternion_from_euler
 
+
 # ===================== [1] 카메라 퍼블리셔 노드 =====================
+# 카메라 프레임을 ROS 토픽으로 퍼블리시하는 노드
 class CameraPublisherNode(Node):
     def __init__(self):
         super().__init__('camera_publisher_node')
@@ -33,17 +40,19 @@ class CameraPublisherNode(Node):
             self.get_logger().error('카메라를 열 수 없습니다.')
 
     def publish_image(self):
+        # 카메라 프레임을 읽고 ROS 메시지로 변환해 publish
         ret, frame = self.cap.read()
         if ret:
             msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
             self.pub.publish(msg)
 
     def destroy_node(self):
-        # 종료 시 카메라 해제
+        # 노드 종료 시 카메라 해제
         self.cap.release()
         super().destroy_node()
 
 # ===================== [2] 터틀봇 컨트롤 노드 =====================
+# 순찰, 사고 출동, 경보, 종료 등 서버의 명령을 받아서 실행하는 노드
 class TurtlebotControllerNode(Node):
     def __init__(self):
         super().__init__('turtlebot1_controller_node')
@@ -52,107 +61,97 @@ class TurtlebotControllerNode(Node):
         self.navigator = BasicNavigator()
 
         # 상태 변수
-        self.current_waypoints = []     # 서버로부터 받은 순찰 경로 리스트
-        self.current_index = 0          # 현재 진행 중인 waypoint index
-        self.is_patrolling = False      # 순찰 중 여부
-        self.is_dispatched = False      # 사고 출동 중 여부
+        self.alarm_window = None        # Tkinter 윈도우 객체
+        self.beep_active = False        # beep 상태
 
-        # 명령 구독
-        self.create_subscription(String, '/robot1/command', self.command_callback, 10)
+        # 반복 비프 퍼블리셔
+        self.beep_pub = self.create_publisher(AudioNoteVector, '/robot1/cmd_audio', 10)
 
-        # 순찰 경로 구독
+        # 순찰 지점 수신 (서버에서 계속 발행)
         self.create_subscription(PoseStamped, '/robot1/patrol_waypoints', self.waypoint_callback, 10)
 
-        # 사고 위치 구독
-        self.create_subscription(PoseStamped, '/robot1/accident_pose', self.accident_callback, 10)
+        # 경보/경고 명령 수신
+        self.create_subscription(Int32, '/robot1/dispatch_command', self.dispatch_command_callback, 10)
 
     def waypoint_callback(self, msg: PoseStamped):
         # 순찰 경로 수신 → 리스트에 추가
-        self.get_logger().info(f'순찰 경로 수신: {msg.pose.position}')
-        self.current_waypoints.append(msg)
-
-    def command_callback(self, msg: String):
-        # 서버로부터 명령 수신
-        cmd = msg.data.lower()
-        self.get_logger().info(f'명령 수신: {cmd}')
-        if cmd == 'start_patrol':
-            self.start_patrol()
-        elif cmd == 'resume_patrol':
-            self.resume_patrol()
-        elif cmd == 'play_alarm':
-            self.play_alarm()
-        elif cmd == 'terminate':
-            self.terminate()
-
-    def accident_callback(self, msg: PoseStamped):
-        # 사고 감지 → 사고 위치로 출동
-        self.get_logger().warn(f'사고 위치 수신 → 출동 시작')
-        self.is_dispatched = True
+        self.get_logger().info(f'순찰 위치 수신: {msg.pose.position}')
         
-        # 출동 명령
+        # 새로운 목표가 오면 이동
         self.navigator.goToPose(msg)
 
         while not self.navigator.isTaskComplete():
             fb = self.navigator.getFeedback()
             if fb:
-                self.get_logger().info(f'출동 중... 남은 거리: {fb.distance_remaining:.2f} m')
+                self.get_logger().info(f'이동 중... 남은 거리: {fb.distance_remaining:.2f} m')
 
         result = self.navigator.getResult()
         if result == TaskResult.SUCCEEDED:
-            self.get_logger().info('출동 완료')
+            self.get_logger().info('순찰 도착 완료')
         else:
-            self.get_logger().error('출동 실패')
+            self.get_logger().warn('순찰 실패')
 
-    def start_patrol(self):
-        # 순찰 시작 명령 수신 시
-        if not self.current_waypoints:
-            self.get_logger().warn('순찰 경로가 없음')
-            return
-        self.is_patrolling = True
-        self.current_index = 0
-        self.patrol_loop()
+    def dispatch_command_callback(self, msg: Int32):
+        # 서버에서 온 명령 처리
+        cmd = msg.data
+        self.get_logger().info(f'명령 수신: {cmd}')
 
-    def resume_patrol(self):
-        # 순찰 재개 명령 수신 시
-        if self.current_index < len(self.current_waypoints):
-            self.get_logger().info('순찰 재개')
-            self.is_patrolling = True
-            self.patrol_loop()
+        if cmd == 0:
+            self.activate_alert()
+        elif cmd == 1:
+            self.deactivate_alert()
         else:
-            self.get_logger().info('순찰 이미 완료됨')
+            self.get_logger().warn(f'알 수 없는 명령: {cmd}')
 
-    def patrol_loop(self):
-        # 순찰 로직 수행
-        while self.is_patrolling and self.current_index < len(self.current_waypoints):
-            pose = self.current_waypoints[self.current_index]
-            self.get_logger().info(f'🚶 순찰 {self.current_index + 1}/{len(self.current_waypoints)} 이동 중')
-            
-            # 이동 시작
-            self.navigator.goToPose(pose)
 
-            while not self.navigator.isTaskComplete():
-                fb = self.navigator.getFeedback()
-                if fb:
-                    self.get_logger().info(f'📡 남은 거리: {fb.distance_remaining:.2f} m')
+    def activate_alert(self):
+        # 경고 활성화: 반복 비프 + 경고창
+        self.get_logger().warn('경고 활성화: beep + 경고창')
+        self.beep_active = True
+        threading.Thread(target=self.beep_loop, daemon=True).start()
+        self.show_warning_interface()
 
-            result = self.navigator.getResult()
-            if result == TaskResult.SUCCEEDED:
-                self.get_logger().info('도착 완료')
-            else:
-                self.get_logger().warn('이동 실패')
+    def deactivate_alert(self):
+        # 경고 비활성화: 비프 정지 + 창 닫기
+        self.get_logger().warn('경고 비활성화: beep 중단 + 창 닫기')
+        self.beep_active = False
+        self.close_warning_interface()
 
-            self.current_index += 1
+    def play_beep(self):
+        # 비프음 반복 전송 (0.5~1초 간격)
+        beep_msg = AudioNoteVector()
+        beep_msg.append = False
+        beep_msg.notes = [
+            AudioNote(frequency=880, max_runtime=Duration(sec=0, nanosec=300_000_000)),
+            AudioNote(frequency=440, max_runtime=Duration(sec=0, nanosec=300_000_000)),
+        ]
 
-        self.get_logger().info('순찰 완료')
-        self.is_patrolling = False
+        while self.beep_active:
+            self.beep_pub.publish(beep_msg)
+            time.sleep(1.0)
 
-    def play_alarm(self):
-        # 서버가 알람 출력 요청 시
-        self.get_logger().warn('경보 울림 (사운드/시각적 처리 필요)')
+    def show_warning_interface(self):
+        def popup():
+            self.alarm_window = tk.Tk()
+            self.alarm_window.title("경고")
+            self.alarm_window.geometry("300x150")
+            label = tk.Label(self.alarm_window, text="이상 상황 발생", font=("Arial", 20))
+            label.pack(expand=True)
+            self.alarm_window.mainloop()
+
+        threading.Thread(target=popup, daemon=True).start()
+
+    def close_warning_interface(self):
+        # 경고창 닫기 시도
+        try:
+            if self.alarm_window:
+                self.alarm_window.destroy()
+                self.alarm_window = None
+        except Exception as e:
+            self.get_logger().warn(f'경고창 닫기 실패: {e}')
 
     def terminate(self):
-        # 종료 명령 수신 시
-        self.get_logger().info('종료 명령 수신 → 도킹 및 종료')
+        self.get_logger().info('종료 명령 수신 → 종료')
         self.navigator.lifecycleShutdown()
         rclpy.shutdown()
 
