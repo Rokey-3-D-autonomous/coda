@@ -1,13 +1,10 @@
 import rclpy
 from rclpy.node import Node
-from rclpy.action import ActionClient
 
 from rclpy.time import Time as RclTime
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.logging import get_logger
 
-from std_srvs.srv import Empty as srv_empty
-from std_msgs.msg import Empty as msg_empty
 from std_msgs.msg import Int32 as i32
 from geometry_msgs.msg import PoseStamped, PointStamped
 from sensor_msgs.msg import Image, CameraInfo
@@ -29,10 +26,7 @@ import cv2
 import numpy as np
 
 # dispatch
-from PyQt5.QtWidgets import QApplication
-from display import VehicleControlDisplay, DisplayWindow
-from audio import AudioPublisher
-from server2.pcd_to_html import RGBDToPCDConverter
+from coda.server2.pcd_to_html import RGBDToPCDConverter
 
 import threading, os, sys, time
 
@@ -230,7 +224,7 @@ class DetectionNode(Node):
         self.detection_callback = detection_callback    # 사고 감지 콜백 함수
         self.bridge = CvBridge()
         self.latest_rgb = self.latest_rgb_msg = None
-        self.overlay_info = []
+        self.rgb_info = []
         self.display_rgb = None
         self.lock = threading.Lock()
 
@@ -266,7 +260,7 @@ class DetectionNode(Node):
             return
 
         results = self.model(rgb, stream=True)
-        overlay_info = []
+        rgb_info = []
 
         for result in results:
             if result.boxes is None:
@@ -286,25 +280,17 @@ class DetectionNode(Node):
                 u, v = map(int, box.xywh[0][:2].cpu().numpy())
                 x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
 
-                overlay_info.append({
+                rgb_info.append({
                     "label": label,
                     "conf": conf,
                     "center": (u, v),
                     "bbox": (x1, y1, x2, y2),
                     "header": rgb_msg.header
                 })
-                self.get_logger().info(f'overlay_info: {overlay_info}')
+                self.get_logger().info(f'overlay_info: {rgb_info}')
 
         with self.lock:
-            self.overlay_info = overlay_info
-
-    def rgb_capture_callback(self):
-        with self.lock:
-            rgb = self.latest_rgb.copy()
-            overlay_info = self.overlay_info.copy()
-        
-        
-
+            self.rgb_info = rgb_info
     pass
 
 class TransformNode(Node):
@@ -383,7 +369,7 @@ class TransformNode(Node):
         marker.lifetime.sec = 3
         self.marker_pub.publish(marker)
         
-    def process_overlay(self, overlay_info, rgb_image):
+    def process_rgb(self, rgb_info):
         with self.lock:
             depth = self.latest_depth
             K = self.K
@@ -391,7 +377,9 @@ class TransformNode(Node):
         if depth is None or K is None:
             return
 
-        for obj in overlay_info:
+        depth_info = []
+
+        for obj in rgb_info:
             u, v = obj['center']
             label = obj['label']
             header = obj['header']
@@ -415,6 +403,11 @@ class TransformNode(Node):
 
             if not np.isnan(obj_x):
                 self._publish_marker(obj_x, obj_y, obj_z, label)
+
+            depth_info.append({"depth": z})
+
+        with self.lock:
+            self.depth_info = depth_info
     pass
 
 class DispatchNode():
@@ -467,7 +460,7 @@ class Server1:
     def __init__(self):
         self.server_logger = get_logger('Server1')
         self.server_state = self.ServerState.IDLE
-        # self.lock = threading.Lock()
+        self.lock = threading.Lock()
 
         self.patrol_node    = PatrolNode()
         self.detect_node    = DetectionNode(self.patrol_node.cancel)    # detection 했을 떄, inference 잠시 중단
@@ -485,14 +478,22 @@ class Server1:
         # patrol
         self.patrol_iter = self.patrol_node.move_generator()
 
+    # def set_state(self, new_state):
+    #     with self.lock:
+    #         self.server_state = new_state
+
+    # def get_state(self):
+    #     with self.lock:
+    #         return self.server_state
+
     def patrol(self):
-        # with self.lock:
-        if self.server_state in [self.ServerState.IDLE, self.ServerState.DISPATCHING, self.ServerState.RECOVERY]:
-            self.server_state = self.ServerState.PATROLING
-            self.server_logger.info(f'current server state {self.server_state}')
-        else:
-            self.server_logger.error(f'[{self.patrol.__name__}] : {self.server_state} is wrong!!')
-            raise RuntimeError()
+        with self.lock:
+            if self.server_state in [self.ServerState.IDLE, self.ServerState.DISPATCHING, self.ServerState.RECOVERY]:
+                self.server_state = self.ServerState.PATROLING
+                self.server_logger.info(f'current server state {self.server_state}')
+            else:
+                self.server_logger.error(f'[{self.patrol.__name__}] : {self.server_state} is wrong!!')
+                raise RuntimeError()
 
         for i, result in self.patrol_iter:
             self.server_logger.info(f'순찰 결과 : {result}')
@@ -517,13 +518,13 @@ class Server1:
         pass
 
     def dispatch(self):
-        # with self.lock:
-        if self.server_state in [self.ServerState.PATROLING, self.ServerState.RECOVERY]:
-            self.server_state = self.ServerState.DISPATCHING
-            self.server_logger.info(f'current server state {self.server_state}')
-        else:
-            self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
-            raise RuntimeError()
+        with self.lock:
+            if self.server_state in [self.ServerState.PATROLING, self.ServerState.RECOVERY]:
+                self.server_state = self.ServerState.DISPATCHING
+                self.server_logger.info(f'current server state {self.server_state}')
+            else:
+                self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
+                raise RuntimeError()
 
         try:
             # t0:photo, 
@@ -537,28 +538,30 @@ class Server1:
 
             # restart patrol
             self.server_state = self.ServerState.PATROLING
-            
         except PatrolNode.PatrolFailure as e:
             self.server_logger.error(f'dispatch error: {e}')
             self.patrol_node.recovery(0)
-            # self.patrol()   # 상태전이
+
             self.server_state = self.ServerState.RECOVERY
         pass
 
     def recovery(self):
-        if self.server_state in [self.ServerState.PATROLING, self.ServerState.DISPATCHING]:
-            self.server_state = self.ServerState.RECOVERY
-            self.server_logger.info(f'current server state {self.server_state}')
-        else:
-            self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
-            raise RuntimeError()
+        with self.lock:
+            if self.server_state in [self.ServerState.PATROLING, self.ServerState.DISPATCHING]:
+                self.server_state = self.ServerState.RECOVERY
+                self.server_logger.info(f'current server state {self.server_state}')
+            else:
+                self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
+                raise RuntimeError()
         
+        # recovery
+
         pass
 
     def terminate(self):
-        # with self.lock:
-        self.server_state = self.ServerState.TERMINATED
-        self.server_logger.info(f'current server state {self.server_state}')
+        with self.lock:
+            self.server_state = self.ServerState.TERMINATED
+            self.server_logger.info(f'current server state {self.server_state}')
 
         self.server_logger.info('순찰 종료')
         self.patrol_node.dock()
@@ -568,8 +571,14 @@ class Server1:
         self.patrol_node.terminate()
 
         self.server_logger.info('탐지 종료')
+        # update
 
         self.server_logger.info('변환 종료')
+        # update
+
+        # detroy ros2 node
+        self.detect_node.destroy_node()
+        self.transform_node.destroy_node()
 
         pass
 
@@ -578,6 +587,58 @@ def main():
 
     try:
         server1 = Server1()
+
+        yolo_node = server1.detect_node()
+        tf_node = server1.transform_node()
+
+        threading.Thread(target=server1.patrol, daemon=True).start()
+
+        while rclpy.ok():
+            with yolo_node.lock:
+                frame = yolo_node.display_rgb.copy() if yolo_node.display_rgb is not None else None
+                rgb_info = yolo_node.rgb_info.copy()
+
+            tf_node.process_rgb(rgb_info)
+
+            with tf_node.lock:
+                depth = tf_node.depth_info.copy()['depth']
+
+            if frame is not None:
+                for obj in rgb_info:
+                    if obj["conf"] < 0.65:
+                        continue
+                    
+                    try:
+                        if server1.server_state == server1.ServerState.PATROLING:
+                            threading.Thread(target=yolo_node.detection_callback, daemon=True).start()
+                            threading.Thread(target=server1.dispatch, daemon=True).start()
+                    except RuntimeError as e:
+                        server1.server_logger.error(f'dispatch error: {e}')
+                        pass
+                        
+                    u, v = obj["center"]
+                    x1, y1, x2, y2 = obj["bbox"]
+                    label = obj["label"]
+                    conf = obj["conf"]
+
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.circle(frame, (u, v), 4, (0, 0, 255), -1)
+                    cv2.putText(
+                        frame,
+                        f"{label}: {conf:.2f}, {depth}m",
+                        (x1, y1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (255, 0, 0),
+                        2,
+                    )
+
+                display_img = cv2.resize(frame, (frame.shape[1]*2, frame.shape[0]*2))
+                cv2.imshow("YOLO + Depth + TF", display_img)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            time.sleep(0.01)
     except RuntimeError as e:
         print(f'RuntimeError: {e}')
     except KeyboardInterrupt:
@@ -585,3 +646,5 @@ def main():
     finally:
         server1.terminate()
         rclpy.shutdown()
+        cv2.destroyAllWindows()
+        sys.exit(0)
