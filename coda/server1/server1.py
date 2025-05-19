@@ -6,7 +6,9 @@ from rclpy.time import Time as RclTime
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.logging import get_logger
 
-from std_srvs.srv import Empty
+from std_srvs.srv import Empty as srv_empty
+from std_msgs.msg import Empty as msg_empty
+from std_msgs.msg import Int32 as i32
 from geometry_msgs.msg import PoseStamped, PointStamped
 from sensor_msgs.msg import Image, CameraInfo
 from visualization_msgs.msg import Marker
@@ -33,8 +35,8 @@ from audio import AudioPublisher
 
 import threading, os, sys, time
 
-TB1_NAMESPACE = '/robot0'
-TB2_NAMESPACE = '/robot1'
+TB0_NAMESPACE = '/robot0'   # photo
+TB1_NAMESPACE = '/robot1'   # patrol
 
 class PatrolNode:
 
@@ -215,7 +217,7 @@ class DetectionNode(Node):
     HOME_PATH = os.path.expanduser("~")                                     # 홈 디렉토리 경로
     MODEL_PATH = os.path.join(HOME_PATH, 'rokey_ws', 'model', 'best.pt')    # 모델 경로
 
-    RGB_TOPIC = TB1_NAMESPACE + "/oakd/rgb/preview/image_raw"
+    RGB_TOPIC = TB0_NAMESPACE + "/oakd/rgb/preview/image_raw"
 
     TARGET_CLASS_ID = [0, 3]
     INFERENCE_PERIOD_SEC = 1.0 / 30
@@ -295,15 +297,22 @@ class DetectionNode(Node):
         with self.lock:
             self.overlay_info = overlay_info
 
+    def rgb_capture_callback(self):
+        with self.lock:
+            rgb = self.latest_rgb.copy()
+            overlay_info = self.overlay_info.copy()
+        
+        
+
     pass
 
 class TransformNode(Node):
 
     INIT_LOADING_TIME = 5.0
 
-    DEPTH_TOPIC = TB1_NAMESPACE + "/oakd/stereo/image_raw"
-    CAMERA_INFO_TOPIC = TB1_NAMESPACE + "/oakd/stereo/camera_info"
-    MARKER_TOPIC = TB1_NAMESPACE + "/detected_objects_marker"
+    DEPTH_TOPIC = TB0_NAMESPACE + "/oakd/stereo/image_raw"
+    CAMERA_INFO_TOPIC = TB0_NAMESPACE + "/oakd/stereo/camera_info"
+    MARKER_TOPIC = TB0_NAMESPACE + "/detected_objects_marker"
 
     def __init__(self):
         super().__init__('TransformNode')
@@ -444,6 +453,8 @@ class Server1:
         RECOVERY    = 'RECOVERY'
         TERMINATED  = 'TERMINATED'
 
+    DISPATCH_TOPIC = TB0_NAMESPACE + '/dispatch_command'
+
     def __init__(self):
         self.server_logger = get_logger('Server1')
         self.server_state = self.ServerState.IDLE
@@ -506,14 +517,34 @@ class Server1:
             raise RuntimeError()
 
         try:
-            self.patrol_node.dispatch()
+            # t0:photo, 
+            # t1:patrol 
+            # 모두 출동 시켜야 함!!
+            self.patrol_node.dispatch() # 이건 그냥 하나만 보낼 수 있음
+
+            tmp_node = Node('tmp_node')
+            msg = i32()
+            # to tb1: ui + beep turn on topic pub : i32.data = 0
+            msg.data = 0    # active
+            tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
+            
+            # from tb0: yolo callback
+            
+            
+            # to tb1: ui + beep turn on topic pub : i32.data = 0
+            msg.data = 1    # deactive
+            tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
+
+            tmp_node.destroy_node()
+
+            # restart patrol
+            self.server_state = self.ServerState.PATROLING
+            
         except PatrolNode.PatrolFailure as e:
             self.server_logger.error(f'dispatch error: {e}')
             self.patrol_node.recovery(0)
             # self.patrol()   # 상태전이
             self.server_state = self.ServerState.RECOVERY
-            return
-
         pass
 
     def recovery(self):
