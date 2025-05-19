@@ -20,10 +20,11 @@ setup(
     entry_points={
         "console_scripts": [
             "part_detect = coda.server1.part_detect:main",
-            "part_patrol = coda.server1.part_patrol:main",
+            "part_patrol = coda.part_patrol:main",
             "part_transform = coda.server1.part_transform:main",
             "server1_test = coda.server1.server1_test:main",
             "server1 = coda.server1.server1:main",
+            "wsh_nav2_controller = coda.wsh_nav2_controller:main",
         ],
     },
 )

@@ -227,3 +227,27 @@ class PatrolNode:
         self.nav_navigator.destroy_node()
 
     pass
+
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    # 멀티스레드 실행을 위한 Executor (TF listener 등 동시 처리 위해)
+    executor = MultiThreadedExecutor()
+
+    try:
+        node = PatrolNode()
+        executor.add_node(node)
+
+        # 실행 시작
+        node.get_logger().info("TransformNode 실행 시작")
+        executor.spin()
+    except KeyboardInterrupt:
+        node.get_logger().info("TransformNode 종료 요청 (Ctrl+C)")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

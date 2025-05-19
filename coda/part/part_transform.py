@@ -35,11 +35,11 @@ from audio import AudioPublisher
 
 import threading, os, sys, time
 
-# TB0_NAMESPACE = "/robot0"  # photo
-# TB1_NAMESPACE = "/robot1"  # patrol
+TB0_NAMESPACE = "/robot0"  # photo
+TB1_NAMESPACE = "/robot1"  # patrol
 
-TB0_NAMESPACE = "/robot1"  # photo
-TB1_NAMESPACE = "/robot0"  # patrol
+# TB0_NAMESPACE = "/robot1"  # photo
+# TB1_NAMESPACE = "/robot0"  # patrol
 
 
 class TransformNode(Node):
@@ -103,8 +103,9 @@ class TransformNode(Node):
             )
             self.get_logger().info(f"44444\n")
         else:
-            self.get_logger().info(f"@@@@44444\n")
+            self.get_logger().info(f"@@@@44444\n")  # 이 부분 문제 있음, 여기가 실행 됨
 
+    # 테스트 불가
     def _transform_to_map(self, point: PointStamped, label: str):
         try:
             map = self.tf_buffer.transform(
@@ -119,6 +120,7 @@ class TransformNode(Node):
             self.get_logger().warn(f"[TF] class={label} 변환 실패: {e}")
             return float("nan"), float("nan"), float("nan")
 
+    # 테스트 불가
     def _publish_marker(self, x, y, z, label):
         self.get_logger().info(f"55555\n")
         marker = Marker()
@@ -142,6 +144,7 @@ class TransformNode(Node):
         marker.lifetime.sec = 3
         self.marker_pub.publish(marker)
 
+    # 테스트 불가
     def process_overlay(self, overlay_info, rgb_image):
         with self.lock:
             depth = self.latest_depth
