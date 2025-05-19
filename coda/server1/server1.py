@@ -26,9 +26,15 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 
+# dispatch
+from PyQt5.QtWidgets import QApplication
+from display import VehicleControlDisplay, DisplayWindow
+from audio import AudioPublisher
+
 import threading, os, sys, time
 
-NAMESPACE = '/robot1'
+TB1_NAMESPACE = '/robot1'
+TB2_NAMESPACE = '/robot2'
 
 class PatrolNode:
 
@@ -45,10 +51,10 @@ class PatrolNode:
 
     INIT_LOADING_TIME = 5.0
 
-    SUCCEEDED = 'SUCCEEDED'
-    DISPATCHED = 'DISPATCHED'
-    RECOVERED = 'RECOVERED'
-    DONE = 'DONE'
+    SUCCEEDED   = 'SUCCEEDED'
+    DISPATCHED  = 'DISPATCHED'
+    RECOVERED   = 'RECOVERED'
+    DONE        = 'DONE'
 
     class AccidentDetected(Exception):
         """사고 감지로 인해 순찰을 중단하고 출동해야 하는 예외"""
@@ -209,15 +215,20 @@ class DetectionNode(Node):
     HOME_PATH = os.path.expanduser("~")                                     # 홈 디렉토리 경로
     MODEL_PATH = os.path.join(HOME_PATH, 'rokey_ws', 'model', 'best.pt')    # 모델 경로
 
+    RGB_TOPIC = TB1_NAMESPACE + "/oakd/rgb/preview/image_raw"
+
+    TARGET_CLASS_ID = [0, 3]
+    INFERENCE_PERIOD_SEC = 1.0 / 30
+    
     def __init__(self, detection_callback):
         super().__init__('Detection Node')
-        self.get_logger().info("[1/5] Detection Node 노드 초기화 시작...")
+        self.get_logger().info("[1/3] Detection Node 노드 초기화 시작...")
 
+        self.detection_callback = detection_callback    # 사고 감지 콜백 함수
         self.bridge = CvBridge()
         self.latest_rgb = self.latest_rgb_msg = None
         self.overlay_info = []
         self.display_rgb = None
-        self.detection_callback = detection_callback
         self.lock = threading.Lock()
 
         if not os.path.exists(self.MODEL_PATH):
@@ -226,51 +237,181 @@ class DetectionNode(Node):
 
         self.model = YOLO(self.MODEL_PATH)
         self.model.to("cuda" if torch.cuda.is_available() else "cpu")
-        self.classNames = getattr(self.model, "names", [])
-        self.get_logger().info(f"[2/5] YOLO 모델 로드 완료 (GPU 사용: {torch.cuda.is_available()})")
+        self.class_names = getattr(self.model, "names", [])
+        self.get_logger().info(f"[2/3] YOLO 모델 로드 완료 (GPU 사용: {torch.cuda.is_available()})")
+
+        self.create_subscription(Image, self.RGB_TOPIC, self._rgb_callback, 10)
+        self.get_logger().info(f"[3/3] 토픽 구독 완료:\n  RGB: {self.RGB_TOPIC}")
+
+        self.create_timer(self.INFERENCE_PERIOD_SEC, self._inference_callback)
+
+    def _rgb_callback(self, msg):
+        try:
+            img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            with self.lock:
+                self.latest_rgb = img.copy()
+                self.display_rgb = img.copy()
+                self.latest_rgb_msg = msg
+        except Exception as e:
+            self.get_logger().error(f"RGB conversion error: {e}")
+    
+    def _inference_callback(self):
+        with self.lock:
+            rgb, rgb_msg = self.latest_rgb.copy(), self.latest_rgb_msg
+
+        if rgb is None or rgb_msg is None:
+            return
+
+        results = self.model(rgb, stream=True)
+        overlay_info = []
+
+        for result in results:
+            if result.boxes is None:
+                continue
+
+            for box in result.boxes:
+                cls = int(box.cls[0])
+                if cls not in self.TARGET_CLASS_ID:
+                    continue
+
+                u, v = map(int, box.xywh[0][:2].cpu().numpy())
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+
+                label = self.class_names[cls] if cls < len(self.class_names) else f'class_{cls}'
+                conf = float(box.conf[0])
+            
+                overlay_info.append({
+                    "label": label,
+                    "conf": conf,
+                    "center": (u, v),
+                    "bbox": (x1, y1, x2, y2),
+                    "header": rgb_msg.header
+                })
+                self.get_logger().info(f'overlay_info: {overlay_info}')
+
+        with self.lock:
+            self.overlay_info = overlay_info
+
     pass
 
 class TransformNode(Node):
+
+    INIT_LOADING_TIME = 5.0
+
+    DEPTH_TOPIC = TB1_NAMESPACE + "/oakd/stereo/image_raw"
+    CAMERA_INFO_TOPIC = TB1_NAMESPACE + "/oakd/stereo/camera_info"
+    MARKER_TOPIC = TB1_NAMESPACE + "/detected_objects_marker"
+
+    def __init__(self):
+        super().__init__('TransformNode')
+        self.get_logger().info('Transform Node 초기환')
+
+        self.bridge = CvBridge()
+        self.K = None
+        self.latest_depth = None
+        self.latest_info = None
+        self.lock = threading.Lock()
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        time.sleep(self.INIT_LOADING_TIME)
+        self.get_logger().info(f'[1/2] TF2 Transform Listener 초기화 대기... {int(self.INIT_LOADING_TIME)}s')
+
+        self.create_subscription(Image, self.DEPTH_TOPIC, self._depth_callback, 1)
+        self.create_subscription(CameraInfo, self.CAMERA_INFO_TOPIC, self._camera_info_callback, 1)
+        self.get_logger().info(f"[2/3] 토픽 구독 완료:\n  Depth: {self.DEPTH_TOPIC}\n  CameraInfo: {self.CAMERA_INFO_TOPIC}")
+
+        self.marker_pub = self.create_publisher(Marker, self.MARKER_TOPIC, 10)
+        self.marker_id = 0
+        self.get_logger().info(f"[3/3] 퍼블리셔 설정 완료\n  MAKER: {self.MARKER_TOPIC}")
+
+    def _depth_callback(self, msg):
+        try:
+            depth = self.bridge.imgmsg_to_cv2(msg, "passthrough")
+            with self.lock:
+                self.latest_depth = depth
+        except Exception as e:
+            self.get_logger().error(f"Depth conversion error: {e}")
+
+    def _camera_info_callback(self, msg):
+        if self.K is None:
+            self.K = np.array(msg.k).reshape(3, 3)
+            self.get_logger().info(f"CameraInfo 수신: fx={self.K[0,0]:.2f}, fy={self.K[1,1]:.2f}, cx={self.K[0,2]:.2f}, cy={self.K[1,2]:.2f}")
+
+    def _transform_to_map(self, point: PointStamped, label: str):
+        try:
+            map = self.tf_buffer.transform(point, "map", timeout=rclpy.duration.Duration(seconds=1.0))
+            x, y, z = map.point.x, map.point.y, map.point.z
+            self.get_logger().info(f"[TF] {label} → map: (x={x:.2f}, y={y:.2f}, z={z:.2f})")
+            return x, y, z
+        except Exception as e:
+            self.get_logger().warn(f"[TF] class={label} 변환 실패: {e}")
+            return float("nan"), float("nan"), float("nan")
+    
+    def _publish_marker(self, x, y, z, label):
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "detected_objects"
+        marker.id = self.marker_id
+        marker.text = label
+        self.marker_id += 1
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = z
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = marker.scale.y = marker.scale.z = 0.2
+        marker.color.r = 1.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        marker.lifetime.sec = 3
+        self.marker_pub.publish(marker)
+        
+    def process_overlay(self, overlay_info, rgb_image):
+        with self.lock:
+            depth = self.latest_depth
+            K = self.K
+
+        if depth is None or K is None:
+            return
+
+        for obj in overlay_info:
+            u, v = obj['center']
+            label = obj['label']
+            header = obj['header']
+
+            if not (0 <= v < depth.shape[0] and 0 <= u < depth.shape[1]):
+                continue
+
+            z = float(depth[v, u]) / 1000.0
+            if z <= 0.05 or np.isnan(z):
+                continue
+
+            fx, fy = K[0, 0], K[1, 1]
+            cx, cy = K[0, 2], K[1, 2]
+            x = (u - cx) * z / fx
+            y = (v - cy) * z / fy
+
+            point = PointStamped()
+            point.header = header
+            point.point.x, point.point.y, point.point.z = x, y, z
+            obj_x, obj_y, obj_z = self._transform_to_map(point, label)
+
+            if not np.isnan(obj_x):
+                self._publish_marker(obj_x, obj_y, obj_z, label)
+        
     pass
 
-class DispatchNode(Node):
-
-    VEHICLE_CONTROL = NAMESPACE + '/vehicle_control'
+class DispatchNode:
 
     def __init__(self):
         super().__init__('Dispatch Node')
 
-        self._action_server = ActionClient(self, VehicleControl, self.VEHICLE_CONTROL)
-    
-    def send_dispatch(self, target_pose: PoseStamped):
-        if not self._client.wait_for_server(timeout_sec=2.0):
-            self.get_logger().error("TB2 action 서버가 준비되지 않았습니다.")
-            return
-
-        goal_msg = VehicleControl.Goal()
-        goal_msg.target_pose = target_pose
-        self.get_logger().info(f'🚨 사고 좌표 전송 → TB2: {target_pose.pose.position}')
-
-        future = self._client.send_goal_async(goal_msg)
-
-        def goal_response_callback(fut):
-            goal_handle = fut.result()
-            if not goal_handle.accepted:
-                self.get_logger().warn("Goal이 거부됨")
-                return
-
-            self.get_logger().info("Goal 수락됨. 결과 대기 중...")
-
-            result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(self.result_callback)
-
-        future.add_done_callback(goal_response_callback)
-
-    def result_callback(self, future):
-        result = future.result().result
-        if result.resume_patrol:
-            self.get_logger().info("✅ TB2 복귀 완료 → 순찰 재개")
-            # 여기서 patrol() 다시 호출하거나 FSM에 신호 전달
+        app = QApplication(sys.argv)
+        window = DisplayWindow()
 
     pass
 
@@ -280,6 +421,7 @@ class Server1:
         IDLE        = 'IDLE'
         PATROLING   = 'PATROLING'
         DISPATCHING = 'DISPATCHING'
+        RECOVERY    = 'RECOVERY'
         TERMINATED  = 'TERMINATED'
 
     def __init__(self):
@@ -291,6 +433,14 @@ class Server1:
         self.detect_node    = DetectionNode(self.patrol_node.cancel)    # detection 했을 떄, inference 잠시 중단
         self.transform_node = TransformNode()
         self.dispatch_node  = DispatchNode()
+
+        # threading
+        executor = MultiThreadedExecutor()
+        executor.add_node(self.detect_node)
+        executor.add_node(self.transform_node)
+
+        executor_thread = threading.Thread(target=executor.spin, daemon=True)
+        executor_thread.start()
 
         # patrol
         self.patrol_iter = self.patrol_node.move_generator()
@@ -310,12 +460,18 @@ class Server1:
                 pass
             elif result == 'DISPATCHED':
                 self.server_logger.info(f'{i+1}번째 순찰지로 향하던 중, 이동 목표 취소 요청 발생\n 상태 전이: {self.server_state} → {self.ServerState.DISPATCHING}')
-                self.dispatch()     # 상태 전이
+                # self.dispatch()     # 상태 전이
+                self.server_state = self.ServerState.DISPATCHING
+                return
             elif result == 'RECOVERED':
                 self.patrol_node.recovery(i)
+                self.server_state = self.ServerState.RECOVERY
+                return
             else:   # DONE
                 self.server_logger.info(f'순찰지 {i+1}곳 순찰 완료\n 상태 전이: {self.server_state} → {self.ServerState.TERMINATED}')
-                self.terminate()    # 상태 전이
+                # self.terminate()    # 상태 전이
+                self.server_state = self.ServerState.TERMINATED
+                return
 
         pass
 
@@ -327,9 +483,14 @@ class Server1:
             self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
             raise RuntimeError()
 
-        self.patrol_node.dispatch()
-
-        self.patrol()   # 상태 전이
+        try:
+            self.patrol_node.dispatch()
+        except PatrolNode.PatrolFailure as e:
+            self.server_logger.error(f'dispatch error: {e}')
+            self.patrol_node.recovery(0)
+            # self.patrol()   # 상태전이
+            self.server_state = self.ServerState.PATROLING
+            return
 
         pass
 
