@@ -49,7 +49,7 @@ class TurtlebotControllerNode(Node):
         super().__init__('turtlebot1_controller_node')
         
         # Nav2 기반 이동을 위한 navigator 생성
-        self.navigator = BasicNavigator(node=self)
+        self.navigator = BasicNavigator()
 
         # 상태 변수
         self.current_waypoints = []     # 서버로부터 받은 순찰 경로 리스트
