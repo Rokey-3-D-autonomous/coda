@@ -45,6 +45,7 @@ class PatrolNode:
         [1.0313, 0.6398, 0.0],          # front of docking station
     ]
     DISPATCH_POSE = [0.0, 0.0, 0.0]     # central of map
+    PHOTO_POSE = []
 
     INIT_LOADING_TIME = 5.0
 
@@ -158,9 +159,9 @@ class PatrolNode:
             self.nav_navigator.cancelTask()
             self.nav_navigator.get_logger().warn('현재 이동 목표 취소 요청됨')
         
-    def dispatch(self, ) -> None:
+    def dispatch(self, dispatch_pose: PoseStamped, namespace: str) -> None:
         self.nav_navigator.get_logger().info(f'사고 발생: 차량 통제를 위해 출동')
-        dispatch_pose = self._create_pose(*self.DISPATCH_POSE)
+        # dispatch_pose = self._create_pose(*self.DISPATCH_POSE)
 
         # 출동 명령
         self.nav_navigator.goToPose(dispatch_pose)
@@ -404,7 +405,12 @@ class TransformNode(Node):
             if not np.isnan(obj_x):
                 self._publish_marker(obj_x, obj_y, obj_z, label)
 
-            depth_info.append({"depth": z})
+            depth_info.append({
+                "depth": z,
+                "obj_x": obj_x,
+                "obj_y": obj_y,
+                "obj_z": obj_z
+            })
 
         with self.lock:
             self.depth_info = depth_info
@@ -530,7 +536,8 @@ class Server1:
             # t0:photo, 
             # t1:patrol 
             # 모두 출동 시켜야 함!!
-            self.patrol_node.dispatch() # 이건 그냥 하나만 보낼 수 있음
+            self.patrol_node.dispatch(self.patrol_node.PHOTO_POSE, TB0_NAMESPACE) # photo spot
+            self.patrol_node.dispatch(self.patrol_node.DISPATCH_POSE, TB1_NAMESPACE) # center
 
             self.dispatch_node.turn_on()
             self.dispatch_node.convert()
@@ -601,7 +608,8 @@ def main():
             tf_node.process_rgb(rgb_info)
 
             with tf_node.lock:
-                depth = tf_node.depth_info.copy()['depth']
+                depth_info = tf_node.depth_info.copy()
+                depth, obj_x, obj_y, obj_z = depth_info['depth'], depth_info['obj_x'], depth_info['obj_y'], depth_info['obj_z']
 
             if frame is not None:
                 for obj in rgb_info:
@@ -611,6 +619,7 @@ def main():
                     try:
                         if server1.server_state == server1.ServerState.PATROLING:
                             threading.Thread(target=yolo_node.detection_callback, daemon=True).start()
+                            server1.patrol_node.PHOTO_POSE = [obj_x, obj_y, obj_z]
                             threading.Thread(target=server1.dispatch, daemon=True).start()
                     except RuntimeError as e:
                         server1.server_logger.error(f'dispatch error: {e}')
