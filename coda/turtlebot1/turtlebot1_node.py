@@ -27,7 +27,8 @@ class CameraPublisherNode(Node):
         # 10Hz 주기로 카메라 이미지 publish
         self.timer = self.create_timer(1.0 / 10, self.publish_image)  # 10Hz
 
-        self.cap = cv2.VideoCapture(0)  # 기본 카메라
+        # OpenCV로 카메라 접근
+        self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             self.get_logger().error('카메라를 열 수 없습니다.')
 
@@ -66,6 +67,7 @@ class TurtlebotControllerNode(Node):
         self.create_subscription(PoseStamped, '/robot1/accident_pose', self.accident_callback, 10)
 
     def waypoint_callback(self, msg: PoseStamped):
+        # 순찰 경로 수신 → 리스트에 추가
         self.get_logger().info(f'순찰 경로 수신: {msg.pose.position}')
         self.current_waypoints.append(msg)
 
