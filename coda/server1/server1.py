@@ -415,33 +415,43 @@ class TransformNode(Node):
 
             if not np.isnan(obj_x):
                 self._publish_marker(obj_x, obj_y, obj_z, label)
-        
     pass
 
-class DispatchNode:
+class DispatchNode():
+
+    DISPATCH_TOPIC = TB0_NAMESPACE + '/dispatch_command'
 
     def __init__(self):
         super().__init__('Dispatch Node')
+        self.get_logger().info('Dispatch Node 초기환')
 
-        self.app = QApplication(sys.argv)
-        self.window = DisplayWindow()
+        self.tmp_node = Node('tmp_node')
+        self.tmp_pub = self.tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
+        self.msg = i32()
 
-        self.audio_publisher = AudioPublisher()
+    def turn_on(self):
+        # to tb1: ui + beep turn on topic pub : i32.data = 0
+        self.msg.data = 0    # active
+        self.tmp_pub.publish(self.msg)
 
-    def display_ui(self):
-        pass
+    def turn_off(self):
+        # to tb1: ui + beep turn on topic pub : i32.data = 1
+        self.msg.data = 1    # deactive
+        self.tmp_pub.publish(self.msg)
 
-    def turn_off_ui(self):
-        pass
-
-    def turn_on_beep(self):
-        pass
-
-    def turn_off_beep(self):
+    def convert(self):
+        # rgb → pcd → html
+        converter = RGBDToPCDConverter()
+        try:
+            rclpy.spin(converter)
+        except KeyboardInterrupt:
+            converter.get_logger().info('Converter stopped by user.')
+        finally:
+            converter.destroy_node()
         pass
 
     def terminate(self):
-        pass
+        self.tmp_node.destroy_node()
 
     pass
 
@@ -453,8 +463,6 @@ class Server1:
         DISPATCHING = 'DISPATCHING'
         RECOVERY    = 'RECOVERY'
         TERMINATED  = 'TERMINATED'
-
-    DISPATCH_TOPIC = TB0_NAMESPACE + '/dispatch_command'
 
     def __init__(self):
         self.server_logger = get_logger('Server1')
@@ -523,26 +531,9 @@ class Server1:
             # 모두 출동 시켜야 함!!
             self.patrol_node.dispatch() # 이건 그냥 하나만 보낼 수 있음
 
-            tmp_node = Node('tmp_node')
-            msg = i32()
-            # to tb1: ui + beep turn on topic pub : i32.data = 0
-            msg.data = 0    # active
-            tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
-            
-            # rgb → pcd → html
-            converter = RGBDToPCDConverter()
-            try:
-                rclpy.spin(converter)
-            except KeyboardInterrupt:
-                converter.get_logger().info('Converter stopped by user.')
-            finally:
-                converter.destroy_node()
-            
-            # to tb1: ui + beep turn on topic pub : i32.data = 0
-            msg.data = 1    # deactive
-            tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
-
-            tmp_node.destroy_node()
+            self.dispatch_node.turn_on()
+            self.dispatch_node.convert()
+            self.dispatch_node.turn_off()
 
             # restart patrol
             self.server_state = self.ServerState.PATROLING
@@ -574,6 +565,7 @@ class Server1:
         self.patrol_node.terminate()
 
         self.server_logger.info('출동 종료')
+        self.patrol_node.terminate()
 
         self.server_logger.info('탐지 종료')
 
