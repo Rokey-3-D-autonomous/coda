@@ -117,7 +117,7 @@ class TurtlebotControllerNode(Node):
         self.beep_active = False
         self.close_warning_interface()
 
-    def play_beep(self):
+    def beep_loop(self):
         # 비프음 반복 전송 (0.5~1초 간격)
         beep_msg = AudioNoteVector()
         beep_msg.append = False
@@ -131,24 +131,23 @@ class TurtlebotControllerNode(Node):
             time.sleep(1.0)
 
     def show_warning_interface(self):
-        def popup():
-            self.alarm_window = tk.Tk()
-            self.alarm_window.title("경고")
-            self.alarm_window.geometry("300x150")
-            label = tk.Label(self.alarm_window, text="이상 상황 발생", font=("Arial", 20))
-            label.pack(expand=True)
-            self.alarm_window.mainloop()
+        self.alarm_window = tk.Tk()
+        self.alarm_window.title("경고")
+        self.alarm_window.attributes("-fullscreen", True)
+        self.alarm_window.configure(bg="white")
 
-        threading.Thread(target=popup, daemon=True).start()
+        label = tk.Label(self.alarm_window, text="차량 통제 중\n⬅️ ⬅️ ⬅️   ➡️ ➡️ ➡️", font=("Arial", 80), fg="red", bg="white")
+        label.pack(expand=True)
 
+        self.alarm_window.mainloop()
+    
     def close_warning_interface(self):
-        # 경고창 닫기 시도
-        try:
-            if self.alarm_window:
+        if self.alarm_window:
+            try:
                 self.alarm_window.destroy()
                 self.alarm_window = None
-        except Exception as e:
-            self.get_logger().warn(f'경고창 닫기 실패: {e}')
+            except Exception as e:
+                self.get_logger().warn(f'경고창 닫기 실패: {e}')
 
     def terminate(self):
         self.get_logger().info('종료 명령 수신 → 종료')
