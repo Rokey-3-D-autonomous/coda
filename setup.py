@@ -22,7 +22,8 @@ setup(
         'console_scripts': [
             'turtlebot1_node = coda.turtlebot1.turtlebot1_node:main',
             'server1_node = coda.server1.server1_node:main',
-            'test_dispatch_publisher = coda.test.test_dispatch_publisher:main'
+            'test_dispatch_publisher = coda.test.test_dispatch_publisher:main',
+            'test_camera_publisher = coda.test.test_camera_publisher:main'
         ],
     },
 )
