@@ -30,8 +30,8 @@ import numpy as np
 
 # dispatch
 from PyQt5.QtWidgets import QApplication
-from display import VehicleControlDisplay, DisplayWindow
-from audio import AudioPublisher
+from coda.server1.display import VehicleControlDisplay, DisplayWindow
+from coda.server1.audio import AudioPublisher
 
 import threading, os, sys, time
 
@@ -577,12 +577,12 @@ class Server1:
 def main():
     rclpy.init()
 
-    try:
-        server1 = Server1()
-    except RuntimeError as e:
-        print(f'RuntimeError: {e}')
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server1.terminate()
-        rclpy.shutdown()
+    patrol = PatrolNode()
+    patrol.move_generator()
+    patrol.dock()
+    patrol.terminate()
+
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
