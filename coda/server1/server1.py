@@ -302,7 +302,7 @@ class TransformNode(Node):
     INIT_LOADING_TIME = 5.0
 
     DEPTH_TOPIC = TB0_NAMESPACE + "/oakd/stereo/image_raw"
-    CAMERA_INFO_TOPIC = TB0_NAMESPACE + "/oakd/stereo/camera_info"
+    CAMERA_INFO_TOPIC = TB0_NAMESPACE + "/oakd/rgb/camera_info"
     MARKER_TOPIC = TB0_NAMESPACE + "/detected_objects_marker"
 
     def __init__(self):
