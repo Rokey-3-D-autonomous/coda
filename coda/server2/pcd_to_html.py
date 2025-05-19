@@ -186,8 +186,10 @@ class RGBDToPCDConverter(Node):
 
     def _shutdown(self):
         self.destroy_node()
-        rclpy.shutdown()
-        sys.exit(0)
+
+        # 주석 처리 for sever 1
+        # rclpy.shutdown()
+        # sys.exit(0)
 
 def main(args=None):
     rclpy.init(args=args)

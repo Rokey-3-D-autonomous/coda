@@ -32,6 +32,7 @@ import numpy as np
 from PyQt5.QtWidgets import QApplication
 from display import VehicleControlDisplay, DisplayWindow
 from audio import AudioPublisher
+from server2.pcd_to_html import RGBDToPCDConverter
 
 import threading, os, sys, time
 
@@ -528,8 +529,14 @@ class Server1:
             msg.data = 0    # active
             tmp_node.create_publisher(i32, self.DISPATCH_TOPIC, 10)
             
-            # from tb0: yolo callback
-            
+            # rgb → pcd → html
+            converter = RGBDToPCDConverter()
+            try:
+                rclpy.spin(converter)
+            except KeyboardInterrupt:
+                converter.get_logger().info('Converter stopped by user.')
+            finally:
+                converter.destroy_node()
             
             # to tb1: ui + beep turn on topic pub : i32.data = 0
             msg.data = 1    # deactive
