@@ -33,8 +33,8 @@ from audio import AudioPublisher
 
 import threading, os, sys, time
 
-TB1_NAMESPACE = '/robot1'
-TB2_NAMESPACE = '/robot2'
+TB1_NAMESPACE = '/robot0'
+TB2_NAMESPACE = '/robot1'
 
 class PatrolNode:
 
@@ -161,7 +161,7 @@ class PatrolNode:
             self.nav_navigator.cancelTask()
             self.nav_navigator.get_logger().warn('현재 이동 목표 취소 요청됨')
         
-    def dispatch(self) -> None:
+    def dispatch(self, ) -> None:
         self.nav_navigator.get_logger().info(f'사고 발생: 차량 통제를 위해 출동')
         dispatch_pose = self._create_pose(*self.DISPATCH_POSE)
 
@@ -274,12 +274,15 @@ class DetectionNode(Node):
                 if cls not in self.TARGET_CLASS_ID:
                     continue
 
-                u, v = map(int, box.xywh[0][:2].cpu().numpy())
-                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                if float(box.conf[0]) < 0.6:
+                    continue
 
                 label = self.class_names[cls] if cls < len(self.class_names) else f'class_{cls}'
                 conf = float(box.conf[0])
-            
+
+                u, v = map(int, box.xywh[0][:2].cpu().numpy())
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+
                 overlay_info.append({
                     "label": label,
                     "conf": conf,
@@ -410,8 +413,25 @@ class DispatchNode:
     def __init__(self):
         super().__init__('Dispatch Node')
 
-        app = QApplication(sys.argv)
-        window = DisplayWindow()
+        self.app = QApplication(sys.argv)
+        self.window = DisplayWindow()
+
+        self.audio_publisher = AudioPublisher()
+
+    def display_ui(self):
+        pass
+
+    def turn_off_ui(self):
+        pass
+
+    def turn_on_beep(self):
+        pass
+
+    def turn_off_beep(self):
+        pass
+
+    def terminate(self):
+        pass
 
     pass
 
@@ -435,7 +455,7 @@ class Server1:
         self.dispatch_node  = DispatchNode()
 
         # threading
-        executor = MultiThreadedExecutor()
+        executor = MultiThreadedExecutor(num_threads=8)
         executor.add_node(self.detect_node)
         executor.add_node(self.transform_node)
 
@@ -447,8 +467,9 @@ class Server1:
 
     def patrol(self):
         # with self.lock:
-        if self.server_state in [self.ServerState.IDLE, self.ServerState.DISPATCHING]:
+        if self.server_state in [self.ServerState.IDLE, self.ServerState.DISPATCHING, self.ServerState.RECOVERY]:
             self.server_state = self.ServerState.PATROLING
+            self.server_logger.info(f'current server state {self.server_state}')
         else:
             self.server_logger.error(f'[{self.patrol.__name__}] : {self.server_state} is wrong!!')
             raise RuntimeError()
@@ -477,8 +498,9 @@ class Server1:
 
     def dispatch(self):
         # with self.lock:
-        if self.server_state in [self.ServerState.PATROLING]:
+        if self.server_state in [self.ServerState.PATROLING, self.ServerState.RECOVERY]:
             self.server_state = self.ServerState.DISPATCHING
+            self.server_logger.info(f'current server state {self.server_state}')
         else:
             self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
             raise RuntimeError()
@@ -489,14 +511,25 @@ class Server1:
             self.server_logger.error(f'dispatch error: {e}')
             self.patrol_node.recovery(0)
             # self.patrol()   # 상태전이
-            self.server_state = self.ServerState.PATROLING
+            self.server_state = self.ServerState.RECOVERY
             return
 
+        pass
+
+    def recovery(self):
+        if self.server_state in [self.ServerState.PATROLING, self.ServerState.DISPATCHING]:
+            self.server_state = self.ServerState.RECOVERY
+            self.server_logger.info(f'current server state {self.server_state}')
+        else:
+            self.server_logger.error(f'[{self.dispatch.__name__}] : {self.server_state} is wrong!!')
+            raise RuntimeError()
+        
         pass
 
     def terminate(self):
         # with self.lock:
         self.server_state = self.ServerState.TERMINATED
+        self.server_logger.info(f'current server state {self.server_state}')
 
         self.server_logger.info('순찰 종료')
         self.patrol_node.dock()

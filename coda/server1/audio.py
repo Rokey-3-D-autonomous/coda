@@ -20,8 +20,6 @@ class AudioPublisher(Node):
         # self.timer_period = 1.0
         # self.timer = self.create_timer(self.timer_period, self.publish_audio)
 
-        self.publish_audio()
-
     def publish_audio(self):
         # create Msg
         msg = AudioNoteVector()
