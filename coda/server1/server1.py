@@ -42,10 +42,11 @@ class PatrolNode:
         [-0.0619, -1.6371, 180.0],      # point 2
         [0.4564, -0.8648, 270.0],       # point 3
         [0.8353, -1.6557, 0.0],         # point 4
-        [1.0313, 0.6398, 0.0],          # front of docking station
+        [1.0313, 0.6398, 0.0],          # front of docking station - tb1
     ]
     DISPATCH_POSE = [0.0, 0.0, 0.0]     # central of map
-    PHOTO_POSE = []
+    PHOTO_POSE = None
+    DOCK_POSE = [0.5, 0.5, 0.0]         # front of docking station - tb0
 
     INIT_LOADING_TIME = 5.0
 
@@ -66,8 +67,10 @@ class PatrolNode:
         self.patrol_logger.info('start initialization')
 
         # 두 navigator 인스턴스 생성
-        self.dock_navigator = TurtleBot4Navigator()
-        self.nav_navigator = BasicNavigator(node_name='navigator_robot1')
+        self.dock_navigator_photo = TurtleBot4Navigator(namespace=TB0_NAMESPACE)
+        self.nav_navigator_photo = BasicNavigator(namespace=TB0_NAMESPACE)
+        self.dock_navigator_patrol = TurtleBot4Navigator(namespace=TB1_NAMESPACE)
+        self.nav_navigator_patrol = BasicNavigator(namespace=TB1_NAMESPACE)
         self.patrol_logger.info('create navigators')
 
         self._get_init_pose()
@@ -79,7 +82,7 @@ class PatrolNode:
         """x, y, yaw(degree) → PoseStamped 생성"""
         pose = PoseStamped()
         pose.header.frame_id = 'map'
-        pose.header.stamp = self.nav_navigator.get_clock().now().to_msg()
+        pose.header.stamp = self.nav_navigator_patrol.get_clock().now().to_msg()
         pose.pose.position.x = x
         pose.pose.position.y = y
 
@@ -93,19 +96,19 @@ class PatrolNode:
 
     def _get_init_pose(self) -> None:
         initial_pose = self._create_pose(*self.INIT_POSE)
-        self.nav_navigator.setInitialPose(initial_pose)
-        self.nav_navigator.get_logger().info(f'초기 위치 설정 중... {int(self.INIT_LOADING_TIME)}s')
+        self.nav_navigator_patrol.setInitialPose(initial_pose)
+        self.nav_navigator_patrol.get_logger().info(f'초기 위치 설정 중... {int(self.INIT_LOADING_TIME)}s')
         time.sleep(self.INIT_LOADING_TIME) #AMCL이 초기 pose 처리 시 필요한 시간과 TF를 얻을 수 있게 됨
         
-        self.nav_navigator.waitUntilNav2Active()
-        self.nav_navigator.get_logger().info(f'네비게이션 시스템 작동 중...')
+        self.nav_navigator_patrol.waitUntilNav2Active()
+        self.nav_navigator_patrol.get_logger().info(f'네비게이션 시스템 작동 중...')
 
     def _undock(self) -> None:
-        if self.dock_navigator.getDockedStatus():
-            self.dock_navigator.get_logger().info('현재 도킹 상태 → 언도킹 시도')
-            self.dock_navigator.undock()
+        if self.dock_navigator_patrol.getDockedStatus():
+            self.dock_navigator_patrol.get_logger().info('현재 도킹 상태 → 언도킹 시도')
+            self.dock_navigator_patrol.undock()
         else:
-            self.dock_navigator.get_logger().info('언도킹 상태에서 시작')
+            self.dock_navigator_patrol.get_logger().info('언도킹 상태에서 시작')
 
     def _get_goal_poses(self) -> None:
         self.goal_poses = [self._create_pose(*self.GOAL_POSES[i]) for i in range(len(self.GOAL_POSES))]
@@ -120,91 +123,91 @@ class PatrolNode:
                 i += 1
                 yield i, self.SUCCEEDED
             except self.AccidentDetected as e:
-                self.nav_navigator.get_logger().warn(str(e))
+                self.nav_navigator_patrol.get_logger().warn(str(e))
                 yield i, self.DISPATCHED
             except self.PatrolFailure as e:
-                self.nav_navigator.get_logger().error(str(e))
+                self.nav_navigator_patrol.get_logger().error(str(e))
                 yield i, self.RECOVERED
         yield i, self.DONE
 
-    def _get_feedback(self, log_msg: str) -> None:
-        while not self.nav_navigator.isTaskComplete():
-            feedback = self.nav_navigator.getFeedback()
+    def _get_feedback(self, navigaotr: BasicNavigator, log_msg: str) -> None:
+        while not navigaotr.isTaskComplete():
+            feedback = navigaotr.getFeedback()
             if feedback:
-                self.nav_navigator.get_logger().info(f'{log_msg}, 남은 거리: {feedback.distance_remaining:.2f} m')
+                navigaotr.get_logger().info(f'{log_msg}, 남은 거리: {feedback.distance_remaining:.2f} m')
     
     def _move_once(self, i: int, goal: PoseStamped) -> None:
-        self.nav_navigator.get_logger().info(f'{i+1} 순찰지 순찰 시작')
+        self.nav_navigator_patrol.get_logger().info(f'{i+1} 순찰지 순찰 시작')
         
         # 이동 명령
-        self.nav_navigator.goToPose(goal)
+        self.nav_navigator_patrol.goToPose(goal)
 
         # 이동 중 사고 감지 시, 출동.
-        self._get_feedback(f'{i+1}번째 순찰지 이동 중')
+        self._get_feedback(self.nav_navigator_patrol, f'{i+1}번째 순찰지 이동 중')
 
         # 목표 지점까지 이동 완료
-        result = self.nav_navigator.getResult()
+        result = self.nav_navigator_patrol.getResult()
         if result == TaskResult.SUCCEEDED:
             if i < 4:
-                self.nav_navigator.get_logger().info(f'{i+1}번째 순찰지 도달.')
+                self.nav_navigator_patrol.get_logger().info(f'{i+1}번째 순찰지 도달.')
             else:
-                self.nav_navigator.get_logger().info(f'순찰 완료. 복귀 중...')
+                self.nav_navigator_patrol.get_logger().info(f'순찰 완료. 복귀 중...')
         elif result == TaskResult.CANCELED:
             raise self.AccidentDetected(f'{i+1}번째 순찰지 이동 취소됨')
         else:
             raise self.PatrolFailure(f'{i+1}번째 순찰지 이동 실패. 상태: {result}')
 
     def cancel(self) -> None:
-        if not self.nav_navigator.isTaskComplete():
-            self.nav_navigator.cancelTask()
-            self.nav_navigator.get_logger().warn('현재 이동 목표 취소 요청됨')
+        if not self.nav_navigator_patrol.isTaskComplete():
+            self.nav_navigator_patrol.cancelTask()
+            self.nav_navigator_patrol.get_logger().warn('현재 이동 목표 취소 요청됨')
         
-    def dispatch(self, dispatch_pose: PoseStamped, namespace: str) -> None:
-        self.nav_navigator.get_logger().info(f'사고 발생: 차량 통제를 위해 출동')
+    def dispatch(self, navigator: BasicNavigator, dispatch_pose) -> None:
+        navigator.get_logger().info(f'사고 발생: 차량 통제를 위해 출동 및 현장 촬영')
         # dispatch_pose = self._create_pose(*self.DISPATCH_POSE)
 
         # 출동 명령
-        self.nav_navigator.goToPose(dispatch_pose)
-        self.nav_navigator.get_logger().info('출동 시작')
+        navigator.goToPose(dispatch_pose)
+        navigator.get_logger().info('출동 시작')
 
         # 출동 중
-        self._get_feedback('출동지 이동 중')
+        self._get_feedback(navigator, '출동지 이동 중')
 
         # 목표 지점까지 출동 완료
-        result = self.nav_navigator.getResult()
+        result = navigator.getResult()
         if result == TaskResult.SUCCEEDED:
-            self.nav_navigator.get_logger().info('출동지 도달. 임무 수행')
+            navigator.get_logger().info('출동지 도달. 임무 수행')
         else:
             raise self.PatrolFailure(f'출동지 이동 실패. 상태: {result}')
 
     def recovery(self, i: int) -> None:
-        self.nav_navigator.get_logger().error(f'오류 발생: {i+1}번 위치로 재이동 시도')
+        self.nav_navigator_patrol.get_logger().error(f'오류 발생: {i+1}번 위치로 재이동 시도')
         docking_station_pose = self._create_pose(*self.GOAL_POSES[i])
         
         # 복구 명령
-        self.nav_navigator.goToPose(docking_station_pose)
-        self.nav_navigator.get_logger().info('복구 시작')
+        self.nav_navigator_patrol.goToPose(docking_station_pose)
+        self.nav_navigator_patrol.get_logger().info('복구 시작')
 
         # 복구 중
-        self._get_feedback('복구 중')
+        self._get_feedback(self.nav_navigator_patrol, '복구 중')
 
         # 복구 완료
-        result = self.nav_navigator.getResult()
+        result = self.nav_navigator_patrol.getResult()
         if result == TaskResult.SUCCEEDED:
-            self.nav_navigator.get_logger().info('복구 위치 도달 성공')
+            self.nav_navigator_patrol.get_logger().info('복구 위치 도달 성공')
         else:
-            self.nav_navigator.get_logger().error(f'복구 위치 도달 실패. 코드: {result}')
+            self.nav_navigator_patrol.get_logger().error(f'복구 위치 도달 실패. 코드: {result}')
             raise self.PatrolFailure(f'복구 실패. 상태: {result}')
 
     def dock(self) -> None:
-        self.dock_navigator.get_logger().info('복귀 완료. 도킹 시도...')
-        self.dock_navigator.dock()
+        self.dock_navigator_patrol.get_logger().info('복귀 완료. 도킹 시도...')
+        self.dock_navigator_patrol.dock()
 
     def terminate(self) -> None:
-        self.dock_navigator.get_logger().info('도킹 완료. 종료...')
-        self.dock_navigator.destroy_node()
-        self.nav_navigator.get_logger().info('순찰 완료. 종료...')
-        self.nav_navigator.destroy_node()
+        self.dock_navigator_patrol.get_logger().info('도킹 완료. 종료...')
+        self.dock_navigator_patrol.destroy_node()
+        self.nav_navigator_patrol.get_logger().info('순찰 완료. 종료...')
+        self.nav_navigator_patrol.destroy_node()
 
     pass
 
@@ -219,7 +222,7 @@ class DetectionNode(Node):
     INFERENCE_PERIOD_SEC = 1.0 / 30
     
     def __init__(self, detection_callback):
-        super().__init__('Detection Node')
+        super().__init__('Detection_Node')
         self.get_logger().info("[1/3] Detection Node 노드 초기화 시작...")
 
         self.detection_callback = detection_callback    # 사고 감지 콜백 함수
@@ -303,7 +306,7 @@ class TransformNode(Node):
     MARKER_TOPIC = TB0_NAMESPACE + "/detected_objects_marker"
 
     def __init__(self):
-        super().__init__('TransformNode')
+        super().__init__('Transform_Node')
         self.get_logger().info('Transform Node 초기환')
 
         self.bridge = CvBridge()
@@ -536,11 +539,17 @@ class Server1:
             # t0:photo, 
             # t1:patrol 
             # 모두 출동 시켜야 함!!
-            self.patrol_node.dispatch(self.patrol_node.PHOTO_POSE, TB0_NAMESPACE) # photo spot
-            self.patrol_node.dispatch(self.patrol_node.DISPATCH_POSE, TB1_NAMESPACE) # center
-
+            dispatch_pose = self.patrol_node._create_pose(*self.patrol_node.DISPATCH_POSE)
+            self.patrol_node.dispatch(self.patrol_node.nav_navigator_patrol, dispatch_pose)     # t1 start
             self.dispatch_node.turn_on()
+
+            self.patrol_node.dock_navigator_photo.undock()
+            self.patrol_node.dispatch(self.patrol_node.nav_navigator_photo, self.patrol_node.PHOTO_POSE)     # t0 start
             self.dispatch_node.convert()
+            dock_pose = self.patrol_node._create_pose(*self.patrol_node.DOCK_POSE)
+            self.patrol_node.dispatch(self.patrol_node.nav_navigator_photo, dock_pose)     # t0 return
+            self.patrol_node.dock_navigator_photo.dock()
+
             self.dispatch_node.turn_off()
 
             # restart patrol
@@ -598,14 +607,15 @@ def main():
         yolo_node = server1.detect_node()
         tf_node = server1.transform_node()
 
-        threading.Thread(target=server1.patrol, daemon=True).start()
-
         while rclpy.ok():
+            with server1.lock:
+                if server1.server_state == server1.ServerState.PATROLING:
+                    threading.Thread(target=server1.patrol, daemon=True).start()
+            
             with yolo_node.lock:
                 frame = yolo_node.display_rgb.copy() if yolo_node.display_rgb is not None else None
                 rgb_info = yolo_node.rgb_info.copy()
-
-            tf_node.process_rgb(rgb_info)
+                tf_node.process_rgb(rgb_info)
 
             with tf_node.lock:
                 depth_info = tf_node.depth_info.copy()
@@ -617,10 +627,14 @@ def main():
                         continue
                     
                     try:
-                        if server1.server_state == server1.ServerState.PATROLING:
-                            threading.Thread(target=yolo_node.detection_callback, daemon=True).start()
-                            server1.patrol_node.PHOTO_POSE = [obj_x, obj_y, obj_z]
-                            threading.Thread(target=server1.dispatch, daemon=True).start()
+                        with server1.lock:
+                            if server1.server_state == server1.ServerState.PATROLING:
+                                threading.Thread(target=yolo_node.detection_callback, daemon=True).start()
+                                
+                                # set pose with [obj_x, obj_y, obj_z]
+                                server1.patrol_node.PHOTO_POSE = server1.patrol_node._create_pose(obj_x, obj_y, 0.0)
+                                
+                                threading.Thread(target=server1.dispatch, daemon=True).start()
                     except RuntimeError as e:
                         server1.server_logger.error(f'dispatch error: {e}')
                         pass
