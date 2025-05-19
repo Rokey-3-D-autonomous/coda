@@ -19,6 +19,8 @@ import datetime
 import os
 import message_filters
 import sys  # <- 터미널 반환을 위한 추가
+import subprocess
+from open3d.visualization.rendering import OffscreenRenderer, MaterialRecord
 
 ROBOT_NAMESPACE = 'robot0'
 RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/preview/image_raw'
@@ -95,11 +97,86 @@ class RGBDToPCDConverter(Node):
         pcd.colors = o3d.utility.Vector3dVector(colors_np)
 
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
         filename = f'rgbd_pointcloud_{timestamp}.pcd'
         filepath = os.path.join(self.save_dir, filename)
 
         o3d.io.write_point_cloud(filepath, pcd)
-        self.get_logger().info(f'Saved rotated RGB-D point cloud to {filepath}')
+
+        # points = np.asarray(pcd.points)
+        # z_median = np.median(points[:, 2])  # Z축 중앙값 계산
+        # filtered_points = points[points[:, 2] >= z_median]  # 중앙값 이하만 남김
+
+        # filtered_pcd = o3d.geometry.PointCloud()
+        # filtered_pcd.points = o3d.utility.Vector3dVector(filtered_points)
+
+        # clean_pcd, ind = filtered_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+
+        img_path = os.path.join(self.save_dir, "scene.png")
+
+        renderer = OffscreenRenderer(width, height)
+        renderer.scene.add_geometry("scene", pcd, MaterialRecord())
+        img = renderer.render_to_image()
+        o3d.io.write_image(img_path, img)
+
+        # ====== 4. 시각화 이미지 저장 ======
+        # Open3D로 3D 뷰 이미지 파일로 저장 (백그라운드)
+        # img_path = "scene.png"
+        # vis = o3d.visualization.Visualizer()
+        # vis.create_window(visible=False)
+        # vis.add_geometry(clean_pcd)
+        # vis.poll_events()
+        # vis.update_renderer()
+        # vis.capture_screen_image(img_path)
+        # vis.destroy_window()
+
+        # ====== 6. Markdown 리포트 파일 생성 ======
+            #    - 사건 발생 추정 시간: {}
+                    # - 사고 지점 x:{},y:{}
+        md = f"""
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <title>CODA 사고 데이터 리포트</title>
+        </head>
+        <body>
+            <h1>CODA 사고 데이터 리포트</h1>
+
+            <h2>요약</h2>
+            <ul>
+                <li>촬영 시간: {timestamp}</li>
+                <li>사건 유형: □ 차대사람  ■ 차대차  □ 차량단독  □ 건널목  □ 차: 기타</li>
+                <li>피해 상황: ■ 물적피해  □ 인적피해  □ 물적피해 + 인적피해  □ 피해없음  □ 본인피해</li>
+            </ul>
+
+            <h2>사고 이미지(2D)</h2>
+            <img src="{os.path.basename(img_path)}" alt="scene" style="max-width:100%; height:auto;"/>
+            
+            <h2>사고 이미지(3D)</h2>
+            <ul>
+                <li>{img_path}
+            </ul>
+
+        </body>
+        </html>
+        """
+
+        html_path = os.path.join(self.save_dir, "report.html")
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(md)
+        # # pdf_path = os.path.join(self.save_dir, "report.pdf")
+        # html_path = os.path.join(self.save_dir, "report.html")
+
+        # # PDF 변환
+        # # subprocess.run(["pandoc", md_path, "-o", pdf_path])
+
+        # # HTML 변환
+        # # subprocess.run(["pandoc", md_path, "-o", html_path])
+
+        # print("리포트 자동 생성 완료!")
+        # print(f"PDF: {pdf_path}")
+        # # print(f"HTML: {html_path}")
 
         self.saved = True
         self.get_logger().info('Shutting down...')
