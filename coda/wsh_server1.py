@@ -61,7 +61,7 @@ class Server(Node):
         # ======= topics ======= #
         # nav0
         self.nav0_pub = self.create_publisher(i32, NAV0_PUB, 10)
-        self.nav0_pub2 = self.create_publisher(Point, NAV0_PUB + '2', 10)
+        self.nav0_pub2 = self.create_publisher(Point, NAV0_PUB + '2', 10)   # yolo에서 탐지한 좌표로 이동
         self.nav0_sub = self.create_subscription(
             i32, NAV0_SUB, self._nav0_sub_callback, 10
         )
@@ -149,14 +149,15 @@ class Server(Node):
         point = Point()
         # point.x, point.y, point.z = self.point
         point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7
-        self.nav0_pub.publish(point)  # 촬영 위치로 가라
+        self.nav0_pub2.publish(point)  # 촬영 위치로 가라
 
         self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
 
-        self.nav0_pub.publish(self.make_msg(0))  # 복귀해라
+        point.x, point.y, point.z = [-1.61, -0.38, 0.0]
+        self.nav0_pub2.publish(point)  # 복귀해라
 
         # 완료
-        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
 
     def dispatch_test(self):
         self.set_status(STATUS.DISPATCH_FLAG)
@@ -168,7 +169,7 @@ class Server(Node):
         self.nav0_pub.publish(self.make_msg(2))  # 8
 
         # 완료
-        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
 
     def exit_scenario(self):
         self.set_status(STATUS.EXIT_FLAG)
@@ -178,7 +179,7 @@ class Server(Node):
         
         # 완료
         self.nav1_pub.publish(self.make_msg(0))
-        self.ui_alarm_pub.publish(self.make_msg(0)) # alarm off
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
 
     def all_stop(self):
         pass
