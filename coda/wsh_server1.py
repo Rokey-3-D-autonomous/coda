@@ -1,5 +1,7 @@
 from enum import Enum
 
+import time
+
 import rclpy
 from rclpy.node import Node
 
@@ -7,6 +9,8 @@ from std_msgs.msg import Int32 as i32
 from std_msgs.msg import Float64 as f64
 from geometry_msgs.msg import PointStamped, PoseStamped, Point
 
+import tf2_ros
+import tf2_geometry_msgs  # 꼭 필요
 
 # system status
 class STATUS(Enum):
@@ -40,7 +44,14 @@ class Server(Node):
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
-        self.nav1_accident_position = 0  # 수정 필요
+        self.nav1_accident_position = 1  # ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
+
+        # TF 설정
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.get_logger().info("tf 안정화(5초)")
+        time.sleep(5)
+        self.get_logger().info("tf 안정화 완료")
 
         # self.get_logger().info("[1/5] 노드 초기화 시작...")
         self.get_logger().info("[1/5] Initialize server node...")
@@ -50,6 +61,7 @@ class Server(Node):
         # ======= topics ======= #
         # nav0
         self.nav0_pub = self.create_publisher(i32, NAV0_PUB, 10)
+        self.nav0_pub2 = self.create_publisher(Point, NAV0_PUB + '2', 10)   # yolo에서 탐지한 좌표로 이동
         self.nav0_sub = self.create_subscription(
             i32, NAV0_SUB, self._nav0_sub_callback, 10
         )
@@ -64,6 +76,7 @@ class Server(Node):
         
         # ui/alarm
         self.ui_alarm_pub = self.create_publisher(i32, UI_ALARM, 10)
+
         # pcd
         self.pcd_pub = self.create_publisher(i32, PHOTO_PUB, 10)
 
@@ -100,6 +113,9 @@ class Server(Node):
         elif data == 4:
             self.get_logger().info('exit_scenario')
             self.exit_scenario()
+        elif data == 5:
+            self.get_logger().info('dispatch_test')
+            self.dispatch_test()
         else:
             self.get_logger().info('all_stop')
             self.all_stop()
@@ -123,23 +139,41 @@ class Server(Node):
 
         # 완료
         self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
-
-        # 
-        self.nav0_pub.publish()  # 촬영 위치로 가라
         
         # 완료
-        self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 안내 위치로 가라
+        self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 차량 통제 위치로 가라
         self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
 
     def dispatch(self):
         self.set_status(STATUS.DISPATCH_FLAG)
         self.get_logger().info("[4/5] Dispatch...")
 
-        self.pcd_pub.publish(self.make_msg(0))
-        self.nav0_pub.publish(self.make_msg(0))  # 복귀해라
+        # 촬영 위치 pose
+        point = Point()
+        # point.x, point.y, point.z = self.point
+        point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7
+        self.nav0_pub2.publish(point)  # 촬영 위치로 가라
+
+        # pcd
+        self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
+
+        point.x, point.y, point.z = [-1.61, -0.38, 0.0] # 8
+        self.nav0_pub2.publish(point)  # 복귀해라
 
         # 완료
-        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
+
+    def dispatch_test(self):
+        self.set_status(STATUS.DISPATCH_FLAG)
+        self.get_logger().info("[4/5] Dispatch...")
+
+        # self.pcd_pub.publish(self.make_msg(0))
+        self.nav0_pub.publish(self.make_msg(2))  # 8
+        self.nav0_pub.publish(self.make_msg(3))  # 7
+        self.nav0_pub.publish(self.make_msg(2))  # 8
+
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
 
     def exit_scenario(self):
         self.set_status(STATUS.EXIT_FLAG)
@@ -149,7 +183,7 @@ class Server(Node):
         
         # 완료
         self.nav1_pub.publish(self.make_msg(0))
-        self.ui_alarm_pub.publish(self.make_msg(0)) # alarm off
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm off
 
     def all_stop(self):
         pass
@@ -164,12 +198,14 @@ class Server(Node):
 
     def _cv_suv_detected_callback(self, msg):
         self.get_logger().info(f'_cv_suv_detected_callback: {msg}')
+        self.get_logger().info(f'_cv_suv_detected_callback: Accident Detected!!!')
         pass
 
     def _cv_suv_position_callback(self, msg):
         self.get_logger().info(f'_cv_suv_position_callback: {msg}')
         x, y, z = self.tf_cam2map(msg.x, msg.y, msg.z)
-        pass
+        self.get_logger().info(f'x, y, z : {x}, {y}, {z}')
+        self.point = [x, y, z]
 
     def tf_cam2map(self, x, y, z):
       try:

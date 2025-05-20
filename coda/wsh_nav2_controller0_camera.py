@@ -12,7 +12,7 @@ from turtlebot4_navigation.turtlebot4_navigator import (
     TurtleBot4Navigator,
 )
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 from tf_transformations import quaternion_from_euler
 
 # ======================
@@ -63,8 +63,8 @@ GOAL_POSES = [
 ACCIDENT_POSE = [0.01, -0.01]
 
 # robot namespace
-# TB0_NAMESPACE = "/robot0"  # photo
-TB1_NAMESPACE = "/robot1"  # patrol
+TB0_NAMESPACE = "/robot0"  # photo
+# TB1_NAMESPACE = "/robot1"  # patrol
 
 INIT_LOADING_TIME = 3.0
 # ======================
@@ -103,11 +103,14 @@ class NavController(Node):
         self.setup_navigation()
 
         # 도착 완료 시 보낼 퍼블리셔, timer 콜백에서 실행될 퍼블리셔
-        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE+"/goal_result", 10)
+        self.goal_pub = self.create_publisher(Int32, TB0_NAMESPACE+"/goal_result", 10)
 
         # 목표 지점 명령
         self.subscription = self.create_subscription(
-            Int32, TB1_NAMESPACE+"/goal_position", self.move_to_goal, 10
+            Int32, TB0_NAMESPACE+"/goal_position", self.move_to_goal, 10
+        )
+        self.subscription2 = self.create_subscription(
+            Point, TB0_NAMESPACE+"/goal_position2", self.move_to_goal2, 10
         )
 
     def create_pose(self, pose, navigator) -> PoseStamped:
@@ -142,6 +145,42 @@ class NavController(Node):
         self.nav_navigator.waitUntilNav2Active()
         self.get_logger().info('done waiting for nav active')
         self.dock_navigator.undock()
+
+    def move_to_goal2(self, msg: Point):
+        """
+        detection 후 tf한 촬영 좌표로 이동
+        """
+        x, y, z = msg.x, msg.y, msg.z
+        goal_pose = self.create_pose(([x, y], 0), self.nav_navigator)
+
+        self.get_logger().info(f"📍 목표 {goal_pose.x}, {goal_pose.y}")
+
+        self.nav_navigator.goToPose(goal_pose)
+
+        while not self.nav_navigator.isTaskComplete():
+            feedback = self.nav_navigator.getFeedback()
+            if feedback:
+                remaining = feedback.distance_remaining
+                self.nav_navigator.get_logger().info(f'남은 거리: {remaining:2f} m')
+
+        result = self.nav_navigator.getResult()
+        
+        result_topic = Int32()
+        result_topic.data = (
+            self.current_goal if result == TaskResult.SUCCEEDED else -1
+        )  # 제대로 도착했으면 goal위치, 아니면 -1
+        self.goal_pub.publish(result_topic)  # 결과 퍼블리시
+
+        if result == TaskResult.SUCCEEDED:
+            self.pending_goal = False  # 목표 이동 완료
+            self.nav_navigator.get_logger().info(f"🏁 목표 {self.current_goal} 도달 성공")
+            # self.go_into_dock()
+        elif result == TaskResult.CANCELED:
+            self.nav_navigator.get_logger().warn('이동이 취소되었습니다.')
+        elif result == TaskResult.FAILED:
+            self.nav_navigator.get_logger().error(f"❌ 목표 {self.current_goal} 실패")
+        else:
+            self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
 
     def move_to_goal(self, msg):
         if msg.data < 0 or msg.data >= self.goal_total:

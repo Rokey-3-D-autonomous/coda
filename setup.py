@@ -33,6 +33,17 @@ setup(
             "part_transform = coda.server1.part_transform:main",   #여기부터 파일없음
             "part_detect = coda.server1.part_detect:main",
             "part_patrol = coda.part_patrol:main",
+            "part_transform = coda.server1.part_transform:main",
+            "server1_test = coda.server1.server1_test:main",
+            "server1 = coda.server1.server1:main",
+            
+            # for test
+            "server_test = coda.server_test:main",
+            "wsh_server = coda.wsh_server1:main",
+            "cv = coda.3_4_tb4_yolo_bbox_depth_checker_obj_11am:main",
+            "pcd = coda.server1.pcd_to_html:main",
+            "wsh_nav2_controller1 = coda.wsh_nav2_controller:main",
+            "wsh_nav2_controller0 = coda.wsh_nav2_controller0_camera:main",
         ],
     },
 )
