@@ -96,7 +96,7 @@ class Server(Node):
             self.detected()
         elif data == 3:
             self.get_logger().info('dispatch')
-            self.dispatch()
+            self.dispatch_test()
         elif data == 4:
             self.get_logger().info('exit_scenario')
             self.exit_scenario()
@@ -123,9 +123,6 @@ class Server(Node):
 
         # 완료
         self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
-
-        # 
-        self.nav0_pub.publish()  # 촬영 위치로 가라
         
         # 완료
         self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 안내 위치로 가라
@@ -135,8 +132,24 @@ class Server(Node):
         self.set_status(STATUS.DISPATCH_FLAG)
         self.get_logger().info("[4/5] Dispatch...")
 
+        # 
+        point = Point()
+        # self.nav0_pub.publish()  # 촬영 위치로 가라
+
         self.pcd_pub.publish(self.make_msg(0))
         self.nav0_pub.publish(self.make_msg(0))  # 복귀해라
+
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
+
+    def dispatch_test(self):
+        self.set_status(STATUS.DISPATCH_FLAG)
+        self.get_logger().info("[4/5] Dispatch...")
+
+        # self.pcd_pub.publish(self.make_msg(0))
+        self.nav0_pub.publish(self.make_msg(2))  # 8
+        self.nav0_pub.publish(self.make_msg(3))  # 7
+        self.nav0_pub.publish(self.make_msg(2))  # 8
 
         # 완료
         self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
@@ -169,7 +182,8 @@ class Server(Node):
     def _cv_suv_position_callback(self, msg):
         self.get_logger().info(f'_cv_suv_position_callback: {msg}')
         x, y, z = self.tf_cam2map(msg.x, msg.y, msg.z)
-        pass
+        self.get_logger().info(f'x, y, z : {x}, {y}, {z}')
+        self.point = [x, y, z]
 
     def tf_cam2map(self, x, y, z):
       try:

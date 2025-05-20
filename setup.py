@@ -27,6 +27,7 @@ setup(
             "wsh_nav2_controller = coda.wsh_nav2_controller:main",
             "wsh_server = coda.wsh_server1:main",
             "server_test = coda.server_test:main",
+            "cv = coda.3_4_tb4_yolo_bbox_depth_checker_obj_11am:main",
         ],
     },
 )

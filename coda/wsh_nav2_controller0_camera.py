@@ -56,7 +56,6 @@ GOAL_POSES = [
     ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
     ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
     ([-1.61, -0.38], TurtleBot4Directions.NORTH),   # 8
-    ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
 
     # last pose is in front of docking station
     # ([...]) -1
@@ -104,11 +103,11 @@ class NavController(Node):
         self.setup_navigation()
 
         # 도착 완료 시 보낼 퍼블리셔, timer 콜백에서 실행될 퍼블리셔
-        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE+"/goal_result", 10)
+        self.goal_pub = self.create_publisher(Int32, TB0_NAMESPACE+"/goal_result", 10)
 
         # 목표 지점 명령
         self.subscription = self.create_subscription(
-            Int32, TB1_NAMESPACE+"/goal_position", self.move_to_goal, 10
+            Int32, TB0_NAMESPACE+"/goal_position", self.move_to_goal, 10
         )
 
     def create_pose(self, pose, navigator) -> PoseStamped:

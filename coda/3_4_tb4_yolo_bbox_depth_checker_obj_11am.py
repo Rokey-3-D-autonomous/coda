@@ -2,7 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PointStamped
+from geometry_msgs.msg import PointStamped, Point
 from std_msgs.msg import Int32  ###객체 탐지시 메시지타입 추가
 import tf2_ros
 import tf2_geometry_msgs  # 꼭 필요
@@ -18,7 +18,7 @@ import time
 # ========================
 # 상수 정의
 # ========================
-YOLO_MODEL_PATH = '/home/jaegwon/rokey_ws/model/best_250520_v10n.pt'  # YOLO 모델 경로
+YOLO_MODEL_PATH = '/home/lhj/rokey_ws/model/best_250520_v10n.pt'  # YOLO 모델 경로
 ROBOT_NAMESPACE = 'robot0'
 RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/image_raw'
 DEPTH_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/image_raw'
@@ -53,13 +53,6 @@ class YoloDepthDistance(Node):
         # 퍼블리셔 설정
         self.accident_pub = self.create_publisher(Int32, f'/{ROBOT_NAMESPACE}/accident_detected', 10)
         self.last_publish_time = 0.0
-
-        # TF 설정
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.get_logger().info("tf 안정화(5초)")
-        time.sleep(5)
-        self.get_logger().info("tf 안정화 완료")
 
         # YOLO + 거리 출력 루프 실행
         threading.Thread(target=self.processing_loop, daemon=True).start()
@@ -140,6 +133,14 @@ class YoloDepthDistance(Node):
                     self.accident_pub.publish(msg)
                     self.get_logger().info("사고 감지!! /accident_detected → 1")
                     self.last_publish_time = now
+                    
+                    # 사고 감지 지점 topic 전송
+                    point_msg = Point()
+                    point_msg.x = float(cam_x)
+                    point_msg.y = float(cam_y)
+                    point_msg.z = float(depth)  # z 축 (카메라 기준 거리)
+                    self.accident_pos_pub.publish(point_msg)
+                    self.get_logger().info(f"사고 좌표 전송: x={cam_x:.2f}, y={cam_y:.2f}, z={depth:.2f}")
 
             cv2.imshow("YOLO Distance View", rgb)
             if cv2.waitKey(1) & 0xFF == ord('q'):
