@@ -1,5 +1,7 @@
 from enum import Enum
 
+import time
+
 import rclpy
 from rclpy.node import Node
 
@@ -7,6 +9,8 @@ from std_msgs.msg import Int32 as i32
 from std_msgs.msg import Float64 as f64
 from geometry_msgs.msg import PointStamped, PoseStamped, Point
 
+import tf2_ros
+import tf2_geometry_msgs  # 꼭 필요
 
 # system status
 class STATUS(Enum):
@@ -42,6 +46,13 @@ class Server(Node):
         self.nav1_current_position = 0
         self.nav1_accident_position = 0  # 수정 필요
 
+        # TF 설정
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.get_logger().info("tf 안정화(5초)")
+        time.sleep(5)
+        self.get_logger().info("tf 안정화 완료")
+
         # self.get_logger().info("[1/5] 노드 초기화 시작...")
         self.get_logger().info("[1/5] Initialize server node...")
 
@@ -49,7 +60,8 @@ class Server(Node):
 
         # ======= topics ======= #
         # nav0
-        self.nav0_pub = self.create_publisher(Point, NAV0_PUB, 10)
+        self.nav0_pub = self.create_publisher(i32, NAV0_PUB, 10)
+        self.nav0_pub2 = self.create_publisher(Point, NAV0_PUB + '2', 10)
         self.nav0_sub = self.create_subscription(
             i32, NAV0_SUB, self._nav0_sub_callback, 10
         )
@@ -64,6 +76,7 @@ class Server(Node):
         
         # ui/alarm
         self.ui_alarm_pub = self.create_publisher(i32, UI_ALARM, 10)
+
         # pcd
         self.pcd_pub = self.create_publisher(i32, PHOTO_PUB, 10)
 
@@ -96,7 +109,7 @@ class Server(Node):
             self.detected()
         elif data == 3:
             self.get_logger().info('dispatch')
-            self.dispatch_test()
+            self.dispatch()
         elif data == 4:
             self.get_logger().info('exit_scenario')
             self.exit_scenario()
@@ -132,9 +145,10 @@ class Server(Node):
         self.set_status(STATUS.DISPATCH_FLAG)
         self.get_logger().info("[4/5] Dispatch...")
 
-        # 
+        # 촬영 위치 pose
         point = Point()
-        point.x, point.y, point.z = self.point
+        # point.x, point.y, point.z = self.point
+        point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7
         self.nav0_pub.publish(point)  # 촬영 위치로 가라
 
         self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영

@@ -12,7 +12,7 @@ from turtlebot4_navigation.turtlebot4_navigator import (
     TurtleBot4Navigator,
 )
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped
 from tf_transformations import quaternion_from_euler
 
 # ======================
@@ -56,7 +56,6 @@ GOAL_POSES = [
     ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
     ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
     ([-1.61, -0.38], TurtleBot4Directions.NORTH),   # 8
-    ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
 
     # last pose is in front of docking station
     # ([...]) -1
