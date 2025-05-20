@@ -4,7 +4,8 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Int32 as i32
-from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float64 as f64
+from geometry_msgs.msg import PointStamped, PoseStamped, Point
 
 
 # system status
@@ -27,7 +28,8 @@ NAV0_PUB = TB0_NAMESPACE + "/goal_position"
 NAV0_SUB = TB0_NAMESPACE + "/goal_result"
 NAV1_PUB = TB1_NAMESPACE + "/goal_position"
 NAV1_SUB = TB1_NAMESPACE + "/goal_result"
-CV_SUB = "/accident_detected"
+CV_SUB_DETECTED = "/accident_detected"
+CV_SUB_POSITION = "/accident_position"
 UI_ALARM = TB1_NAMESPACE + "/dispatch_command"
 PHOTO_PUB = "/photo"
 SERVER_SUB = "/control_scenario"
@@ -57,8 +59,9 @@ class Server(Node):
             i32, NAV1_SUB, self._nav1_sub_callback, 10
         )
         # cv
-        self.cv_sub = self.create_subscription(i32, CV_SUB, self._cv_suv_callback, 10)
-        # self.cv_sub = self.create_subscription(?, CV_SUB, 10)
+        self.cv_sub = self.create_subscription(i32, CV_SUB_DETECTED, self._cv_suv_detected_callback, 10)
+        self.cv_sub = self.create_subscription(Point, CV_SUB_POSITION, self._cv_suv_position_callback, 10)
+        
         # ui/alarm
         self.ui_alarm_pub = self.create_publisher(i32, UI_ALARM, 10)
         # pcd
@@ -121,7 +124,8 @@ class Server(Node):
         # 완료
         self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
 
-        self.nav0_pub.publish(self.make_msg(1))  # 촬영 위치로 가라
+        # 
+        self.nav0_pub.publish()  # 촬영 위치로 가라
         
         # 완료
         self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 안내 위치로 가라
@@ -158,9 +162,43 @@ class Server(Node):
         self.get_logger().info(f'_nav1_sub_callback: {msg}')
         pass
 
-    def _cv_suv_callback(self, msg):
-        self.get_logger().info(f'_cv_suv_callback: {msg}')
+    def _cv_suv_detected_callback(self, msg):
+        self.get_logger().info(f'_cv_suv_detected_callback: {msg}')
         pass
+
+    def _cv_suv_position_callback(self, msg):
+        self.get_logger().info(f'_cv_suv_position_callback: {msg}')
+        x, y, z = self.tf_cam2map(msg.x, msg.y, msg.z)
+        pass
+
+    def tf_cam2map(self, x, y, z):
+      try:
+          # base_link 기준 포인트 생성
+          point_cam = PointStamped()
+          point_cam.header.stamp = rclpy.time.Time().to_msg()
+          # point_cam.header.frame_id = 'oakd_imu_frame'
+          point_cam.header.frame_id = 'oakd_rgb_camera_optical_frame'
+          point_cam.point.x = x #1m 앞
+          point_cam.point.y = y
+          point_cam.point.z = z
+
+          # base_link → map 변환
+          try:
+              point_map = self.tf_buffer.transform(
+                  point_cam,
+                  'map',
+                  timeout=rclpy.duration.Duration(seconds=0.5)
+              )
+              return point_map.point.x, point_map.point.y, point_map.point.z
+          
+          except Exception as e:
+              self.get_logger().warn(f"TF transform to map failed: {e}")
+              return None, None, None
+
+      except Exception as e:
+          self.get_logger().warn(f"Unexpected error: {e}")
+
+      return None, None, None
 
 def main():
     rclpy.init()

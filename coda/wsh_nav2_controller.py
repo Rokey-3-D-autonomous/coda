@@ -12,7 +12,7 @@ from turtlebot4_navigation.turtlebot4_navigator import (
     TurtleBot4Navigator,
 )
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from tf_transformations import quaternion_from_euler
 
 # ======================
@@ -25,7 +25,7 @@ INITIAL_POSE_DIRECTION = TurtleBot4Directions.NORTH
 GOAL_POSES = [
     # patrol route
     ([-1.42, 3.27], TurtleBot4Directions.NORTH),
-    ([-0.4, -3.27], TurtleBot4Directions.NORTH),
+    ([-1.01, -1.01], TurtleBot4Directions.NORTH),
     ([-1.42, 3.27], TurtleBot4Directions.NORTH),
     ([-1.42, 3.27], TurtleBot4Directions.NORTH),
 
@@ -37,6 +37,8 @@ ACCIDENT_POSE = [0.01, -0.01]
 # robot namespace
 TB0_NAMESPACE = "/robot0"  # photo
 TB1_NAMESPACE = "/robot1"  # patrol
+
+INIT_LOADING_TIME = 3.0
 # ======================
 """
 def setup_navigation(self): 네비게이션 셋업
@@ -116,7 +118,7 @@ class NavController(Node):
     def move_to_goal(self, msg):
         if msg.data < 0 or msg.data >= self.goal_total:
             # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
-            self.get_logger().info(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
+            self.get_logger().info(f"go to last position in front of dock station: {msg.data}")
 
             # docking
             return
@@ -164,7 +166,6 @@ class NavController(Node):
         self.dock_navigator.get_logger().info("✅ 모든 목표 도달 완료. 도킹 시작")
         self.dock_navigator.dock()
         self.dock_navigator.get_logger().info("✅ 도킹 요청 완료")
-
 
 def main():
     rclpy.init()
