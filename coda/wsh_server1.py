@@ -30,7 +30,7 @@ NAV1_SUB = TB1_NAMESPACE + "/goal_result"
 CV_SUB = "/accident_detected"
 UI_ALARM = TB1_NAMESPACE + "/dispatch_command"
 PHOTO_PUB = "/photo"
-
+SERVER_SUB = "/control_scenario"
 
 class Server(Node):
     def __init__(self):
@@ -38,7 +38,7 @@ class Server(Node):
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
-        self.nav1_accident_position = 7  # 수정 필요
+        self.nav1_accident_position = 0  # 수정 필요
 
         # self.get_logger().info("[1/5] 노드 초기화 시작...")
         self.get_logger().info("[1/5] Initialize server node...")
@@ -66,7 +66,7 @@ class Server(Node):
 
         # control scenario
         self.control_scenario_sub = self.create_subscription(
-            i32, "/control_scenario", self.control_scenario, 10
+            i32, SERVER_SUB, self.control_scenario, 10
         )
 
     def get_status(self) -> STATUS:
@@ -75,19 +75,30 @@ class Server(Node):
     def set_status(self, new_status: STATUS):
         self.status = new_status
 
-    def control_scenario(self, msg):
+    def make_msg(self, data):
+        msg = i32()
+        msg.data = data
+        return msg
 
-        if msg.data == 0:
+    def control_scenario(self, msg):
+        data = msg.data
+        if data == 0:
+            self.get_logger().info('ready')
             self.ready()
-        elif msg.data == 1:
+        elif data == 1:
+            self.get_logger().info('patrol')
             self.patrol()
-        elif msg.data == 2:
+        elif data == 2:
+            self.get_logger().info('detected')
             self.detected()
-        elif msg.data == 3:
+        elif data == 3:
+            self.get_logger().info('dispatch')
             self.dispatch()
-        elif msg.data == 4:
+        elif data == 4:
+            self.get_logger().info('exit_scenario')
             self.exit_scenario()
         else:
+            self.get_logger().info('all_stop')
             self.all_stop()
         pass
 
@@ -98,51 +109,72 @@ class Server(Node):
     def patrol(self):
         self.set_status(STATUS.PATROL_FLAG)
         self.get_logger().info("[2/5] Patrol...")
-        # send goal position to nav0
-        self.nav1_pub.publish(i32(self.nav1_current_position))
+
+        # 완료
+        self.nav1_pub.publish(self.make_msg(self.nav1_current_position))
         self.nav1_current_position += 1
 
     def detected(self):
         self.set_status(STATUS.DETECTED_FLAG)
         self.get_logger().info("[3/5] Detected...")
-        # send goal position to nav1
-        self.ui_alarm_pub.publish(i32(1))  # alarm on
 
-        self.nav0_pub.publish(i32(1))  # 촬영 위치로 가라
-        self.nav1_pub.publish(i32(self.nav1_accident_position))  # 안내 위치로 가라
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
+
+        self.nav0_pub.publish(self.make_msg(1))  # 촬영 위치로 가라
+        
+        # 완료
+        self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 안내 위치로 가라
         self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
 
     def dispatch(self):
         self.set_status(STATUS.DISPATCH_FLAG)
         self.get_logger().info("[4/5] Dispatch...")
 
-        self.pcd_pub.publish(i32(0))
-        self.nav0_pub.publish(i32(0))  # 복귀해라
+        self.pcd_pub.publish(self.make_msg(0))
+        self.nav0_pub.publish(self.make_msg(0))  # 복귀해라
+
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(1)) # alarm on 
 
     def exit_scenario(self):
         self.set_status(STATUS.EXIT_FLAG)
         self.get_logger().info("[5/5] Exit...")
-        # send goal position to nav0
-        self.nav0_pub.publish(i32(0))
-        self.nav1_pub.publish(i32(0))
-
-        # alarm off
-        self.ui_alarm_pub.publish(i32(0))
+        
+        self.nav0_pub.publish(self.make_msg(0))
+        
+        # 완료
+        self.nav1_pub.publish(self.make_msg(0))
+        self.ui_alarm_pub.publish(self.make_msg(0)) # alarm off
 
     def all_stop(self):
         pass
 
     def _nav0_sub_callback(self, msg):
+        self.get_logger().info(f'_nav0_sub_callback: {msg}')
         pass
 
     def _nav1_sub_callback(self, msg):
-
+        self.get_logger().info(f'_nav1_sub_callback: {msg}')
         pass
 
     def _cv_suv_callback(self, msg):
-        # self.set_status(STATUS.DETECTED_FLAG)
+        self.get_logger().info(f'_cv_suv_callback: {msg}')
         pass
 
-
 def main():
-    
+    rclpy.init()
+
+    server = Server()
+
+    try:
+        rclpy.spin(server)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.destroy_node()
+        rclpy.shutdown()
+        print('server down')
+
+if __name__ == "__main__":
+    main()

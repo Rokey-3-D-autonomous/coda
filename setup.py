@@ -18,12 +18,6 @@ setup(
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
-<<<<<<< HEAD
-        'console_scripts': [
-            'turtlebot1_node = coda.turtlebot1.turtlebot1_node:main',
-            'server1_node = coda.server1.server1_node:main',
-            'test_dispatch_publisher = coda.test.test_dispatch_publisher:main'
-=======
         "console_scripts": [
             "part_detect = coda.server1.part_detect:main",
             "part_patrol = coda.part_patrol:main",
@@ -31,7 +25,8 @@ setup(
             "server1_test = coda.server1.server1_test:main",
             "server1 = coda.server1.server1:main",
             "wsh_nav2_controller = coda.wsh_nav2_controller:main",
->>>>>>> wsh
+            "wsh_server = coda.wsh_server1:main",
+            "server_test = coda.server_test:main",
         ],
     },
 )
