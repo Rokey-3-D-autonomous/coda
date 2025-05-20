@@ -49,7 +49,7 @@ class Server(Node):
 
         # ======= topics ======= #
         # nav0
-        self.nav0_pub = self.create_publisher(i32, NAV0_PUB, 10)
+        self.nav0_pub = self.create_publisher(Point, NAV0_PUB, 10)
         self.nav0_sub = self.create_subscription(
             i32, NAV0_SUB, self._nav0_sub_callback, 10
         )
@@ -134,9 +134,11 @@ class Server(Node):
 
         # 
         point = Point()
-        # self.nav0_pub.publish()  # 촬영 위치로 가라
+        point.x, point.y, point.z = self.point
+        self.nav0_pub.publish(point)  # 촬영 위치로 가라
 
-        self.pcd_pub.publish(self.make_msg(0))
+        self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
+
         self.nav0_pub.publish(self.make_msg(0))  # 복귀해라
 
         # 완료

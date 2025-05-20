@@ -53,6 +53,7 @@ class YoloDepthDistance(Node):
         # 퍼블리셔 설정
         self.accident_pub = self.create_publisher(Int32, f'/{ROBOT_NAMESPACE}/accident_detected', 10)
         self.last_publish_time = 0.0
+        self.accident_pos_pub = self.create_publisher(Point, f'/{ROBOT_NAMESPACE}/accident_position', 10)
 
         # YOLO + 거리 출력 루프 실행
         threading.Thread(target=self.processing_loop, daemon=True).start()
