@@ -19,7 +19,10 @@ import time
 # 상수 정의
 # ========================
 YOLO_MODEL_PATH = '/home/lhj/rokey_ws/model/best_250520_v10n.pt'  # YOLO 모델 경로
-ROBOT_NAMESPACE = 'robot0'
+
+# 실행 전 ns 확인
+ROBOT_NAMESPACE = 'robot0' 
+
 RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/image_raw'
 DEPTH_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/image_raw'
 CAMERA_INFO_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/camera_info'

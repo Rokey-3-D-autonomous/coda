@@ -44,7 +44,7 @@ class Server(Node):
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
-        self.nav1_accident_position = 0  # 수정 필요
+        self.nav1_accident_position = 1  # ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
 
         # TF 설정
         self.tf_buffer = tf2_ros.Buffer()
@@ -113,6 +113,9 @@ class Server(Node):
         elif data == 4:
             self.get_logger().info('exit_scenario')
             self.exit_scenario()
+        elif data == 5:
+            self.get_logger().info('dispatch_test')
+            self.dispatch_test()
         else:
             self.get_logger().info('all_stop')
             self.all_stop()
@@ -138,7 +141,7 @@ class Server(Node):
         self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
         
         # 완료
-        self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 안내 위치로 가라
+        self.nav1_pub.publish(self.make_msg(self.nav1_accident_position))  # 차량 통제 위치로 가라
         self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
 
     def dispatch(self):
@@ -151,9 +154,10 @@ class Server(Node):
         point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7
         self.nav0_pub2.publish(point)  # 촬영 위치로 가라
 
+        # pcd
         self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
 
-        point.x, point.y, point.z = [-1.61, -0.38, 0.0]
+        point.x, point.y, point.z = [-1.61, -0.38, 0.0] # 8
         self.nav0_pub2.publish(point)  # 복귀해라
 
         # 완료
@@ -194,6 +198,7 @@ class Server(Node):
 
     def _cv_suv_detected_callback(self, msg):
         self.get_logger().info(f'_cv_suv_detected_callback: {msg}')
+        self.get_logger().info(f'_cv_suv_detected_callback: Accident Detected!!!')
         pass
 
     def _cv_suv_position_callback(self, msg):

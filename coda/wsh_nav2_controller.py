@@ -63,7 +63,7 @@ GOAL_POSES = [
 ACCIDENT_POSE = [0.01, -0.01]
 
 # robot namespace
-TB0_NAMESPACE = "/robot0"  # photo
+# TB0_NAMESPACE = "/robot0"  # photo
 TB1_NAMESPACE = "/robot1"  # patrol
 
 INIT_LOADING_TIME = 3.0
