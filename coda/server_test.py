@@ -2,6 +2,21 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32 as i32
 
+"""
+TODO
+1, 본인이 맡은 기능 실행
+2. ros2 run coda wsh_server
+3. ros2 run coda server_test
+
+in 3번 terminal
+0 : ready -> 단순 통신 확인
+1 : patrol -> 순찰
+2 : detected -> 탐지
+3 : dispatch -> 사고 장면 촬영
+4 : exit_scenario -> 종료
+5 : all_stop -> 안쓰는 기능
+"""
+
 SERVER_PUB = "/control_scenario"
 
 class TestSever(Node):

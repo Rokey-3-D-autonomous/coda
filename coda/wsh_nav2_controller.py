@@ -21,13 +21,38 @@ from tf_transformations import quaternion_from_euler
 INITIAL_POSE_POSITION = [-0.01, -0.01]
 INITIAL_POSE_DIRECTION = TurtleBot4Directions.NORTH
 # INITIAL_POSE = (0.00, 0.00, TurtleBot4Directions.NORTH)
-
+"""
+- 1 
+x: -0.60
+y: 0.26
+- 2
+x: -0.60
+y: 0.26
+- 3
+x: -0.60
+y: 0.26
+- 4
+x: -0.70
+y: 5.33
+- 5
+x: -1.92
+y: 5.53
+- 6
+x: -1.76
+y: 3.77
+- 7
+x: -1.67
+y: 1.54
+- 8
+x: -1.61
+y: -0.38
+"""
 GOAL_POSES = [
     # patrol route
-    ([-1.42, 3.27], TurtleBot4Directions.NORTH),
-    ([-1.01, -1.01], TurtleBot4Directions.NORTH),
-    ([-1.42, 3.27], TurtleBot4Directions.NORTH),
-    ([-1.42, 3.27], TurtleBot4Directions.NORTH),
+    ([-1.92, 5.33], TurtleBot4Directions.NORTH),
+    ([-1.76, 3.77], TurtleBot4Directions.NORTH),
+    ([-1.67, 1.54], TurtleBot4Directions.NORTH),
+    ([-1.61, -0.38], TurtleBot4Directions.NORTH),
 
     # last pose is in front of docking station
     # ([...]) -1
