@@ -22,37 +22,49 @@ import sys  # <- 터미널 반환을 위한 추가
 import subprocess
 from open3d.visualization.rendering import OffscreenRenderer, MaterialRecord
 
-ROBOT_NAMESPACE = 'robot0'
-RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/preview/image_raw'
-DEPTH_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/image_raw'
-CAMERA_INFO_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/camera_info'
+from std_msgs.msg import Int32 as i32
+
+ROBOT_NAMESPACE = "robot0"
+RGB_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/rgb/preview/image_raw"
+DEPTH_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/stereo/image_raw"
+CAMERA_INFO_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/stereo/camera_info"
+
+PHOTO_TOPIC = "/photo"
+
 
 class RGBDToPCDConverter(Node):
     def __init__(self):
-        super().__init__('rgbd_to_pcd_converter')
+        super().__init__("rgbd_to_pcd_converter")
         self.bridge = CvBridge()
         self.saved = False
 
+        self.create_subscription(i32, PHOTO_TOPIC, self.acc_callback, 10)
+
+    def acc_callback(self, msg):
         rgb_sub = message_filters.Subscriber(self, Image, RGB_TOPIC)
         depth_sub = message_filters.Subscriber(self, Image, DEPTH_TOPIC)
         info_sub = message_filters.Subscriber(self, CameraInfo, CAMERA_INFO_TOPIC)
 
-        ts = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub, info_sub], queue_size=10, slop=0.1)
+        ts = message_filters.ApproximateTimeSynchronizer(
+            [rgb_sub, depth_sub, info_sub], queue_size=10, slop=0.1
+        )
         ts.registerCallback(self.callback)
 
-        self.save_dir = os.path.expanduser('~/pcd_files')
+        self.save_dir = os.path.expanduser("~/pcd_files")
         os.makedirs(self.save_dir, exist_ok=True)
 
-        self.get_logger().info('RGBD to PCD Converter is running.')
+        self.get_logger().info("RGBD to PCD Converter is running.")
 
     def callback(self, rgb_msg, depth_msg, cam_info_msg):
         if self.saved:
             return
 
-        self.get_logger().info('Received synced RGB-D and camera info.')
+        self.get_logger().info("Received synced RGB-D and camera info.")
 
-        rgb_image = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
-        depth_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+        rgb_image = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
+        depth_image = self.bridge.imgmsg_to_cv2(
+            depth_msg, desired_encoding="passthrough"
+        )
 
         if depth_image.dtype == np.uint16:
             depth_image = depth_image.astype(np.float32) / 1000.0  # mm → m
@@ -78,27 +90,25 @@ class RGBDToPCDConverter(Node):
                 colors.append([r / 255.0, g / 255.0, b / 255.0])
 
         if not points:
-            self.get_logger().warn('No valid points found.')
+            self.get_logger().warn("No valid points found.")
             return
 
         points_np = np.array(points, dtype=np.float32)
         colors_np = np.array(colors, dtype=np.float32)
 
         # 회전
-        rotation_matrix = np.array([
-            [ 1,  0,  0],
-            [ 0,  -1,  0],
-            [ 0,  0,  -1]
-        ], dtype=np.float32)
+        rotation_matrix = np.array(
+            [[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float32
+        )
         rotated_points = (rotation_matrix @ points_np.T).T
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(rotated_points)
         pcd.colors = o3d.utility.Vector3dVector(colors_np)
 
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f'rgbd_pointcloud_{timestamp}.pcd'
+        filename = f"rgbd_pointcloud_{timestamp}.pcd"
         filepath = os.path.join(self.save_dir, filename)
 
         o3d.io.write_point_cloud(filepath, pcd)
@@ -131,8 +141,8 @@ class RGBDToPCDConverter(Node):
         # vis.destroy_window()
 
         # ====== 6. Markdown 리포트 파일 생성 ======
-            #    - 사건 발생 추정 시간: {}
-                    # - 사고 지점 x:{},y:{}
+        #    - 사건 발생 추정 시간: {}
+        # - 사고 지점 x:{},y:{}
         md = f"""
         <!DOCTYPE html>
         <html lang="ko">
@@ -179,7 +189,7 @@ class RGBDToPCDConverter(Node):
         # # print(f"HTML: {html_path}")
 
         self.saved = True
-        self.get_logger().info('Shutting down...')
+        self.get_logger().info("Shutting down...")
         # shutdown + 종료 예약
         self.executor = rclpy.get_global_executor()
         self.executor.call_soon_threadsafe(self._shutdown)
@@ -191,6 +201,7 @@ class RGBDToPCDConverter(Node):
         # rclpy.shutdown()
         # sys.exit(0)
 
+
 def main(args=None):
     rclpy.init(args=args)
     converter = RGBDToPCDConverter()
@@ -198,12 +209,13 @@ def main(args=None):
     try:
         rclpy.spin(converter)
     except KeyboardInterrupt:
-        converter.get_logger().info('Converter stopped by user.')
+        converter.get_logger().info("Converter stopped by user.")
     finally:
         if rclpy.ok():
             converter.destroy_node()
             rclpy.shutdown()
         sys.exit(0)  # <- 최종 fallback 종료
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

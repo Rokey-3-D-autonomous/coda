@@ -28,16 +28,12 @@ yolo depth rviz에서 서브스크라이브로 물체인식 확인 후 실행
 
 - sub
     Int32, "/robot1/move_position"
-
-PCD 보고서 노드
-- pub
-
-- sub
-
+    Int32, "/robot1/move_pose"
 
 YOLO DEPTH RVIZ 노드
 - pub
-
+    Int32, "/accident_detected"
+    ?, "/accident_detected_tf" : 좌표 받아와서, 서버에서 Pose로 변환해서 Nav0에 쏴줄 데이터
 - sub
     Image, RGB_TOPIC
     Image, DEPTH_TOPIC
@@ -45,8 +41,29 @@ YOLO DEPTH RVIZ 노드
 - timer
     YOLO 인식
 
-TUTLEBOT 노드
+UI/알람 노드
 - pub
     AudioNoteVector, "/robot1/cmd_audio" -> 서버에서 사용 안함
 - sub
     Int32, "/robot1/dispatch_command"
+
+PCD 보고서 노드
+- pub
+- sub
+    I32, "/accident_detected"
+
+
+=====================================================================
+서버파트 
+- YOLO DEPTH RVIZ 노드
+- PCD 보고서 노드
+- **서버 제어 노드**
+
+
+터틀봇 0 파트
+- 네비게이션 노드
+
+
+터틀봇 1 파트
+- 네비게이션 노드
+- UI/알람 노드

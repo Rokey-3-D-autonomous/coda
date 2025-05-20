@@ -1,255 +1,142 @@
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PointStamped
-from visualization_msgs.msg import Marker
 from cv_bridge import CvBridge
-import tf2_ros
-import tf2_geometry_msgs
+from ultralytics import YOLO
 import numpy as np
 import cv2
 import threading
-import time
 import os
 import sys
-from ultralytics import YOLO
-import torch
 
-# === 상수 정의 ===
-MODEL_PATH = "/home/rokey/rokey_ws/model/best.pt"
-TARGET_CLASS_ID = 0
-INFERENCE_PERIOD_SEC = 1.0 / 20  # 20Hz 추론 주기
-RGB_TOPIC = "cropped/rgb/image_raw"
-DEPTH_TOPIC = "cropped/depth/image_raw"
-CAMERA_INFO_TOPIC = "cropped/camera_info"
-MARKER_TOPIC = "detected_objects_marker"
+# ========================
+# 상수 정의
+# ========================
+# YOLO_MODEL_PATH = '/home/mi/rokey_ws/model/yolov8n.pt'
+YOLO_MODEL_PATH = "/home/lhj/rokey_ws/model/best.pt"  # YOLO 모델 경로
+# RGB_TOPIC = 'cropped/rgb/image_raw'
+# DEPTH_TOPIC = 'cropped/depth/image_raw'
+# CAMERA_INFO_TOPIC = 'cropped/camera_info'
+
+ROBOT_NAMESPACE = "robot1"
+RGB_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/rgb/preview/image_raw"
+DEPTH_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/stereo/image_raw"
+CAMERA_INFO_TOPIC = f"/{ROBOT_NAMESPACE}/oakd/stereo/camera_info"
+TARGET_CLASS_ID = 0  # 예: car
+# ========================
 
 
-class YoloDepthToMap(Node):
+class YoloDepthDistance(Node):
     def __init__(self):
-        super().__init__("yolo_depth_to_map")
-        self.get_logger().info("[1/5] 노드 초기화 시작...")
+        super().__init__("yolo_depth_distance")
+        self.get_logger().info("YOLO + Depth 거리 출력 노드 시작")
 
-        if not os.path.exists(MODEL_PATH):
-            self.get_logger().error(f"Model file not found: {MODEL_PATH}")
+        # YOLO 모델 로드
+        if not os.path.exists(YOLO_MODEL_PATH):
+            self.get_logger().error(f"YOLO 모델이 존재하지 않습니다: {YOLO_MODEL_PATH}")
             sys.exit(1)
-
-        self.model = YOLO(MODEL_PATH)
-        self.model.to("cuda" if torch.cuda.is_available() else "cpu")
-        self.get_logger().info(
-            f"[2/5] YOLO 모델 로드 완료 (GPU 사용: {torch.cuda.is_available()})"
-        )
+        self.model = YOLO(YOLO_MODEL_PATH)
+        self.class_names = getattr(self.model, "names", [])
 
         self.bridge = CvBridge()
-        self.classNames = getattr(self.model, "names", [])
-
         self.K = None
-        self.latest_rgb = self.latest_depth = self.latest_rgb_msg = None
-        self.overlay_info = []
-        self.display_rgb = None
+        self.rgb_image = None
+        self.depth_image = None
         self.lock = threading.Lock()
 
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.get_logger().info("[3/5] TF2 Transform Listener 초기화 완료")
-
-        self.create_subscription(Image, RGB_TOPIC, self.rgb_callback, 1)
-        self.create_subscription(Image, DEPTH_TOPIC, self.depth_callback, 1)
+        # ROS 구독자 설정
         self.create_subscription(
             CameraInfo, CAMERA_INFO_TOPIC, self.camera_info_callback, 1
         )
-        self.get_logger().info(
-            f"[4/5] 토픽 구독 완료:\n  RGB: {RGB_TOPIC}\n  Depth: {DEPTH_TOPIC}\n  CameraInfo: {CAMERA_INFO_TOPIC}"
-        )
+        self.create_subscription(Image, RGB_TOPIC, self.rgb_callback, 1)
+        self.create_subscription(Image, DEPTH_TOPIC, self.depth_callback, 1)
 
-        self.marker_pub = self.create_publisher(Marker, MARKER_TOPIC, 10)
-        self.marker_id = 0
-        self.get_logger().info(f"[5/5] RViz Marker 퍼블리셔 설정 완료: {MARKER_TOPIC}")
-
-        self.create_timer(INFERENCE_PERIOD_SEC, self.inference_callback)
+        # YOLO + 거리 출력 루프 실행
+        threading.Thread(target=self.processing_loop, daemon=True).start()
 
     def camera_info_callback(self, msg):
         if self.K is None:
             self.K = np.array(msg.k).reshape(3, 3)
-            self.get_logger().info(
-                f"CameraInfo 수신: fx={self.K[0,0]:.2f}, fy={self.K[1,1]:.2f}, cx={self.K[0,2]:.2f}, cy={self.K[1,2]:.2f}"
-            )
+            self.get_logger().info("CameraInfo 수신 완료")
 
     def rgb_callback(self, msg):
-        try:
-            img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            with self.lock:
-                self.latest_rgb = img.copy()
-                self.latest_rgb_msg = msg
-                self.display_rgb = img.copy()
-        except Exception as e:
-            self.get_logger().error(f"RGB conversion error: {e}")
+        with self.lock:
+            self.rgb_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
     def depth_callback(self, msg):
-        try:
-            depth = self.bridge.imgmsg_to_cv2(msg, "passthrough")
-            with self.lock:
-                self.latest_depth = depth
-        except Exception as e:
-            self.get_logger().error(f"Depth conversion error: {e}")
-
-    def transform_to_map(self, pt_camera: PointStamped, class_name: str):
-        try:
-            pt_map = self.tf_buffer.transform(
-                pt_camera, "map", timeout=rclpy.duration.Duration(seconds=0.5)
-            )
-            x, y, z = pt_map.point.x, pt_map.point.y, pt_map.point.z
-            self.get_logger().info(
-                f"[TF] {class_name} → map: (x={x:.2f}, y={y:.2f}, z={z:.2f})"
-            )
-            return x, y, z
-        except Exception as e:
-            self.get_logger().warn(f"[TF] class={class_name} 변환 실패: {e}")
-            return float("nan"), float("nan"), float("nan")
-
-    def publish_marker(self, x, y, z, label):
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = "detected_objects"
-        marker.id = self.marker_id
-        self.marker_id += 1
-        marker.type = Marker.SPHERE
-        marker.action = Marker.ADD
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = z
-        marker.pose.orientation.w = 1.0
-        marker.scale.x = marker.scale.y = marker.scale.z = 0.2
-        marker.color.r = 1.0
-        marker.color.g = 1.0
-        marker.color.b = 0.0
-        marker.color.a = 1.0
-        marker.lifetime.sec = 3
-        self.marker_pub.publish(marker)
-
-    def inference_callback(self):
         with self.lock:
-            rgb, depth, K, rgb_msg = (
-                self.latest_rgb,
-                self.latest_depth,
-                self.K,
-                self.latest_rgb_msg,
-            )
+            self.depth_image = self.bridge.imgmsg_to_cv2(msg, "passthrough")
 
-        if any(v is None for v in (rgb, depth, K, rgb_msg)):
-            return
-
-        results = self.model(rgb)
-        overlay_info = []
-
-        for result in results:
-            if result.boxes is None:
-                continue
-            for box in result.boxes:
-                cls = int(box.cls[0])
-                if cls != TARGET_CLASS_ID:
-                    continue
-
-                u, v = map(int, box.xywh[0][:2].cpu().numpy())
-                if not (0 <= v < depth.shape[0] and 0 <= u < depth.shape[1]):
-                    continue
-
-                z = float(depth[v, u]) / 1000.0
-                if z <= 0.05 or np.isnan(z):
-                    continue
-
-                fx, fy = K[0, 0], K[1, 1]
-                cx, cy = K[0, 2], K[1, 2]
-                x = (u - cx) * z / fx
-                y = (v - cy) * z / fy
-
-                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
-                conf = float(box.conf[0])
-                label = (
-                    self.classNames[cls]
-                    if cls < len(self.classNames)
-                    else f"class_{cls}"
-                )
-
-                pt_camera = PointStamped()
-                pt_camera.header.frame_id = rgb_msg.header.frame_id
-                pt_camera.header.stamp = rclpy.time.Time().to_msg()
-                pt_camera.point.x, pt_camera.point.y, pt_camera.point.z = x, y, z
-
-                map_x, map_y, map_z = self.transform_to_map(pt_camera, label)
-                if not np.isnan(map_x):
-                    self.publish_marker(map_x, map_y, map_z, label)
-
-                overlay_info.append(
-                    {
-                        "label": label,
-                        "conf": conf,
-                        "center": (u, v),
-                        "bbox": (x1, y1, x2, y2),
-                        "depth": z,
-                    }
-                )
-
-        with self.lock:
-            self.overlay_info = overlay_info
-
-
-import sys
-
-
-def main():
-    rclpy.init()
-    node = YoloDepthToMap()
-
-    executor = MultiThreadedExecutor(num_threads=4)
-    executor.add_node(node)
-
-    executor_thread = threading.Thread(target=executor.spin, daemon=True)
-    executor_thread.start()
-
-    try:
+    def processing_loop(self):
+        cv2.namedWindow("YOLO Distance View", cv2.WINDOW_NORMAL)
         while rclpy.ok():
-            with node.lock:
-                frame = (
-                    node.display_rgb.copy() if node.display_rgb is not None else None
-                )
-                overlay_info = node.overlay_info.copy()
+            with self.lock:
+                if self.rgb_image is None or self.depth_image is None or self.K is None:
+                    continue
+                rgb = self.rgb_image.copy()
+                depth = self.depth_image.copy()
 
-            if frame is not None:
-                for obj in overlay_info:
-                    u, v = obj["center"]
-                    x1, y1, x2, y2 = obj["bbox"]
-                    label = obj["label"]
-                    conf = obj["conf"]
-                    z = obj["depth"]
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.circle(frame, (u, v), 4, (0, 0, 255), -1)
+            results = self.model(rgb, stream=True)
+
+            for r in results:
+                for box in r.boxes:
+                    cls = int(box.cls[0])
+                    if cls != TARGET_CLASS_ID:
+                        continue
+
+                    # 중심 좌표
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    u, v = (x1 + x2) // 2, (y1 + y2) // 2
+
+                    if not (0 <= u < depth.shape[1] and 0 <= v < depth.shape[0]):
+                        continue
+
+                    # 거리 계산 (mm → m)
+                    val = depth[v, u]
+                    if depth.dtype == np.uint16:
+                        distance_m = val / 1000.0
+                    else:
+                        distance_m = float(val)
+
+                    label = (
+                        self.class_names[cls]
+                        if cls < len(self.class_names)
+                        else f"class_{cls}"
+                    )
+                    self.get_logger().info(f"{label} at ({u},{v}) → {distance_m:.2f}m")
+
+                    # RGB 이미지 위 시각화
+                    cv2.rectangle(rgb, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.circle(rgb, (u, v), 4, (0, 0, 255), -1)
                     cv2.putText(
-                        frame,
-                        f"{label} {conf:.2f} {z:.2f}m",
-                        (x1, y1 - 5),
+                        rgb,
+                        f"{distance_m:.2f}m",
+                        (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
+                        0.6,
                         (255, 0, 0),
                         2,
                     )
 
-                cv2.imshow("YOLO + Depth + Map", frame)
-
+            cv2.imshow("YOLO Distance View", rgb)
             if cv2.waitKey(1) & 0xFF == ord("q"):
-                node.get_logger().info("Shutdown requested by user.")
                 break
-            time.sleep(0.01)
+
+
+# ========================
+# 메인 함수
+# ========================
+def main():
+    rclpy.init()
+    node = YoloDepthDistance()
+    try:
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
         rclpy.shutdown()
         cv2.destroyAllWindows()
-        print("Shutdown complete.")
-        sys.exit(0)
 
 
 if __name__ == "__main__":
