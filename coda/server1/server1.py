@@ -1,3 +1,9 @@
+import threading, os, sys, time
+
+import numpy as np
+if not hasattr(np, 'float'):
+    np.float = float
+
 import rclpy
 from rclpy.node import Node
 
@@ -9,7 +15,6 @@ from std_msgs.msg import Int32 as i32
 from geometry_msgs.msg import PoseStamped, PointStamped
 from sensor_msgs.msg import Image, CameraInfo
 from visualization_msgs.msg import Marker
-from coda_interfaces.srv import VehicleControl
 
 # nav
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
@@ -23,12 +28,9 @@ from ultralytics import YOLO
 import torch
 from cv_bridge import CvBridge
 import cv2
-import numpy as np
 
 # dispatch
 from coda.server2.pcd_to_html import RGBDToPCDConverter
-
-import threading, os, sys, time
 
 TB0_NAMESPACE = '/robot0'   # photo
 TB1_NAMESPACE = '/robot1'   # patrol
@@ -66,16 +68,16 @@ class PatrolNode:
         self.patrol_logger = get_logger('PatrolNode')
         self.patrol_logger.info('start initialization')
 
-        # 두 navigator 인스턴스 생성
+        # tb0 navigator
         self.dock_navigator_photo = TurtleBot4Navigator(namespace=TB0_NAMESPACE)
         self.nav_navigator_photo = BasicNavigator(namespace=TB0_NAMESPACE)
+
+        # tb1 navigator
         self.dock_navigator_patrol = TurtleBot4Navigator(namespace=TB1_NAMESPACE)
         self.nav_navigator_patrol = BasicNavigator(namespace=TB1_NAMESPACE)
         self.patrol_logger.info('create navigators')
 
-        self._get_init_pose()
-        self._undock()
-        self._get_goal_poses()
+        self._init_sequence()
         self.patrol_logger.info('configure PatrolNode')
 
     def _create_pose(self, x, y, yaw_deg) -> PoseStamped:
@@ -94,6 +96,11 @@ class PatrolNode:
         pose.pose.orientation.w = q[3]
         return pose
 
+    def _init_sequence(self) -> None:
+        self._get_init_pose()
+        self._undock()
+        self._get_goal_poses()
+
     def _get_init_pose(self) -> None:
         initial_pose = self._create_pose(*self.INIT_POSE)
         self.nav_navigator_patrol.setInitialPose(initial_pose)
@@ -111,7 +118,7 @@ class PatrolNode:
             self.dock_navigator_patrol.get_logger().info('언도킹 상태에서 시작')
 
     def _get_goal_poses(self) -> None:
-        self.goal_poses = [self._create_pose(*self.GOAL_POSES[i]) for i in range(len(self.GOAL_POSES))]
+        self.goal_poses = [self._create_pose(*pose) for pose in self.GOAL_POSES]
         self.patrol_logger.info('순찰지 생성')
     
     def move_generator(self) -> iter:
@@ -419,7 +426,7 @@ class TransformNode(Node):
             self.depth_info = depth_info
     pass
 
-class DispatchNode():
+class DispatchNode:
 
     DISPATCH_TOPIC = TB0_NAMESPACE + '/dispatch_command'
 
