@@ -114,6 +114,8 @@ class Server(Node):
     def update_loop(self):
         # 대기 시 순찰 시작
         if self.status == STATUS.READY_FLAG:
+            self.get_logger().info('ready')
+
             if self.nav1_current_position >= 5:  # 이동 종료 시
                 self.set_status(STATUS.EXIT_FLAG)
             else:
@@ -177,7 +179,6 @@ class Server(Node):
         elif self.status == STATUS.EXIT_FLAG:
             self.exit_scenario()
 
-        self.get_logger().info('ready')
 
     def get_status(self) -> STATUS:
         return self.status
