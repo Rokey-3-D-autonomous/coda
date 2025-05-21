@@ -123,7 +123,13 @@ class Server(Node):
     def update_loop(self):
         # 대기 시 순찰 시작
         if self.status == STATUS.READY_FLAG:
+<<<<<<< HEAD
             if self.nav1_current_position >= 4:  # 이동 종료 시
+=======
+            self.get_logger().info('ready')
+
+            if self.nav1_current_position >= 5:  # 이동 종료 시
+>>>>>>> wsh
                 self.set_status(STATUS.EXIT_FLAG)
             else:
                 self.set_status(STATUS.PATROL_FLAG)
@@ -149,6 +155,22 @@ class Server(Node):
                 self.detected()  # 각 로봇 이동 명령
                 self.cv_position_state = 2
 
+<<<<<<< HEAD
+=======
+            # if self.cv_position_state == 2:
+            #     self.get_logger().info("aaa")
+            # else:
+            #     self.get_logger().info("bbb")
+            # if self.nav1_state == STATUS.NAV_DONE:
+            #     self.get_logger().info("ccc")
+            # else:
+            #     self.get_logger().info("ddd")
+            # if self.nav0_state == STATUS.NAV_DONE:
+            #     self.get_logger().info("eee")
+            # else:
+            #     self.get_logger().info("fff")
+
+>>>>>>> wsh
         # 출동 종료 명령 시
         elif self.status == STATUS.DISPATCH_FLAG:
 
@@ -160,11 +182,26 @@ class Server(Node):
             if self.dispatch_state == 0:
                 self.dispatch_state = 1
                 self.dispatch()
+<<<<<<< HEAD
+=======
+
+            if self.nav1_state == STATUS.NAV_DONE:
+                self.get_logger().info("aaa")
+            else:
+                self.get_logger().info("bbb")
+            if self.nav0_state == STATUS.NAV_DONE:
+                self.get_logger().info("ccc")
+            else:
+                self.get_logger().info("ddd")
+>>>>>>> wsh
         # 시나리오 종료 시
         elif self.status == STATUS.EXIT_FLAG:
             self.exit_scenario()
 
+<<<<<<< HEAD
         self.get_logger().info("ready")
+=======
+>>>>>>> wsh
 
     def get_status(self) -> STATUS:
         return self.status
@@ -211,7 +248,11 @@ class Server(Node):
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
         # 완료
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
+<<<<<<< HEAD
         self.get_logger().info(f"patrol pub: {self.nav1_current_position}")
+=======
+        self.get_logger().info(f'patrol pub: {self.nav1_current_position}')
+>>>>>>> wsh
         self.nav1_current_position += 1
 
     def detected(self):
@@ -260,7 +301,11 @@ class Server(Node):
 
         # TB0 복귀
         point = Point()
+<<<<<<< HEAD
         point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
+=======
+        point.x, point.y, point.z = [-0.55, -0.37, 0.0]  # 8번 위치, dock 하기 전 위치
+>>>>>>> wsh
         self.nav0_state = STATUS.NAV_WORKING
         self.nav0_pub2.publish(point)
 

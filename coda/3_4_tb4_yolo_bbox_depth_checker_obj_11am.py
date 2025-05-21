@@ -15,6 +15,15 @@ import os
 import sys
 import time
 
+# qos 추가
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+qos_profile_1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_5 = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10 = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10_default = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+
 # ========================
 # 상수 정의
 # ========================
@@ -50,14 +59,14 @@ class YoloDepthDistance(Node):
         self.inference_results = None   #추가
 
         # ROS 구독자 설정
-        self.create_subscription(CameraInfo, CAMERA_INFO_TOPIC, self.camera_info_callback, 1)
-        self.create_subscription(Image, RGB_TOPIC, self.rgb_callback, 1)
-        self.create_subscription(Image, DEPTH_TOPIC, self.depth_callback, 1)
+        self.create_subscription(CameraInfo, CAMERA_INFO_TOPIC, self.camera_info_callback, qos_profile_1)
+        self.create_subscription(Image, RGB_TOPIC, self.rgb_callback, qos_profile_1)
+        self.create_subscription(Image, DEPTH_TOPIC, self.depth_callback, qos_profile_1)
 
         # 퍼블리셔 설정
-        self.accident_pub = self.create_publisher(Int32, f'/{ROBOT_NAMESPACE}/accident_detected', 10)
+        self.accident_pub = self.create_publisher(Int32, f'/{ROBOT_NAMESPACE}/accident_detected', qos_profile_10)
         self.last_publish_time = 0.0
-        self.accident_pos_pub = self.create_publisher(Point, f'/{ROBOT_NAMESPACE}/accident_position', 10)
+        self.accident_pos_pub = self.create_publisher(Point, f'/{ROBOT_NAMESPACE}/accident_position', qos_profile_10)
 
         # YOLO + 거리 출력 루프 실행
         threading.Thread(target=self.processing_loop, daemon=True).start()
