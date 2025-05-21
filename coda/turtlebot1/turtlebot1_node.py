@@ -64,7 +64,8 @@ class TurtlebotControllerNode(Node):
         self.beep_thread = None
 
         self.beep_pub = self.create_publisher(AudioNoteVector, '/robot1/cmd_audio', 10)
-
+        self.goal_result_pub = self.create_publisher(Int32, '/robot1/goal_result', 10)
+        
         self.create_subscription(PoseStamped, '/robot1/patrol_waypoints', self.waypoint_callback, 10)
         self.create_subscription(Int32, '/robot1/dispatch_command', self.dispatch_command_callback, 10)
 
