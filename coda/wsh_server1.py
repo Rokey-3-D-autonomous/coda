@@ -32,8 +32,8 @@ NAV0_PUB = TB0_NAMESPACE + "/goal_position"
 NAV0_SUB = TB0_NAMESPACE + "/goal_result"
 NAV1_PUB = TB1_NAMESPACE + "/goal_position"
 NAV1_SUB = TB1_NAMESPACE + "/goal_result"
-CV_SUB_DETECTED = "/accident_detected"
-CV_SUB_POSITION = "/accident_position"
+CV_SUB_DETECTED = TB1_NAMESPACE + "/accident_detected"
+CV_SUB_POSITION = TB1_NAMESPACE + "/accident_position"
 UI_ALARM = TB1_NAMESPACE + "/dispatch_command"
 PHOTO_PUB = "/photo"
 SERVER_SUB = "/control_scenario"
@@ -85,6 +85,8 @@ class Server(Node):
             i32, SERVER_SUB, self.control_scenario, 10
         )
 
+        self.get_logger().info('ready')
+
     def get_status(self) -> STATUS:
         return self.status
 
@@ -131,6 +133,7 @@ class Server(Node):
 
         # 완료
         self.nav1_pub.publish(self.make_msg(self.nav1_current_position))
+        self.get_logger().info(f'patrol pub: {self.nav1_current_position}')
         self.nav1_current_position += 1
 
     def detected(self):

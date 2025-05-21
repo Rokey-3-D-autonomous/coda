@@ -18,7 +18,7 @@ from tf_transformations import quaternion_from_euler
 # ======================
 # 초기 설정 (파일 안에서 직접 정의)
 # ======================
-INITIAL_POSE_POSITION = [-0.01, -0.01]
+INITIAL_POSE_POSITION = [-0.83, 7.27]
 INITIAL_POSE_DIRECTION = TurtleBot4Directions.NORTH
 # INITIAL_POSE = (0.00, 0.00, TurtleBot4Directions.NORTH)
 """
@@ -52,8 +52,8 @@ y: 2.10
 """
 GOAL_POSES = [
     # patrol route
-    ([-1.92, 5.33], TurtleBot4Directions.NORTH),    # 5
-    ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
+    ([-1.92, 5.33], TurtleBot4Directions.EAST),    # 5
+    ([-1.76, 3.77], TurtleBot4Directions.EAST),    # 6
     ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
     ([-1.61, -0.38], TurtleBot4Directions.NORTH),   # 8
 
@@ -110,6 +110,8 @@ class NavController(Node):
             Int32, TB1_NAMESPACE+"/goal_position", self.move_to_goal, 10
         )
 
+        self.get_logger().info('ready nav1 server')
+
     def create_pose(self, pose, navigator) -> PoseStamped:
         x, y = pose[0][0], pose[0][1]
         yaw_deg = pose[1]
@@ -131,6 +133,8 @@ class NavController(Node):
         return pose
 
     def setup_navigation(self):
+        self.get_logger().info('start setup nav1')
+        self.get_logger().info(f'dock status : {self.dock_navigator.getDockedStatus()}')
         if not self.dock_navigator.getDockedStatus():
             self.dock_navigator.info("Docking before initializing pose")
             self.dock_navigator.dock()

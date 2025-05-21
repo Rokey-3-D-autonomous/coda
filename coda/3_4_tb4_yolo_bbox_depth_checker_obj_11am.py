@@ -9,7 +9,7 @@ import tf2_geometry_msgs  # 꼭 필요
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 import numpy as np
-import cv2
+import cv2, torch
 import threading
 import os
 import sys
@@ -21,7 +21,7 @@ import time
 YOLO_MODEL_PATH = '/home/rokey/rokey_ws/model/best_250520_v10n.pt'  # YOLO 모델 경로
 
 # 실행 전 ns 확인
-ROBOT_NAMESPACE = 'robot0' 
+ROBOT_NAMESPACE = 'robot1' 
 
 RGB_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/rgb/image_raw'
 DEPTH_TOPIC = f'/{ROBOT_NAMESPACE}/oakd/stereo/image_raw'
@@ -35,10 +35,11 @@ class YoloDepthDistance(Node):
         self.get_logger().info("YOLO + Depth 거리 출력 노드 시작")
 
         # YOLO 모델 로드
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if not os.path.exists(YOLO_MODEL_PATH):
             self.get_logger().error(f"YOLO 모델이 존재하지 않습니다: {YOLO_MODEL_PATH}")
             sys.exit(1)
-        self.model = YOLO(YOLO_MODEL_PATH)
+        self.model = YOLO(YOLO_MODEL_PATH).to(device)
         self.class_names = getattr(self.model, 'names', [])
 
         self.bridge = CvBridge()
@@ -142,9 +143,9 @@ class YoloDepthDistance(Node):
                     point_msg = Point()
                     point_msg.x = float(cam_x)
                     point_msg.y = float(cam_y)
-                    point_msg.z = float(depth)  # z 축 (카메라 기준 거리)
+                    point_msg.z = distance_m  # z 축 (카메라 기준 거리)
                     self.accident_pos_pub.publish(point_msg)
-                    self.get_logger().info(f"사고 좌표 전송: x={cam_x:.2f}, y={cam_y:.2f}, z={depth:.2f}")
+                    self.get_logger().info(f"사고 좌표 전송: x={cam_x:.2f}, y={cam_y:.2f}, z={distance_m:.2f}")
 
             cv2.imshow("YOLO Distance View", rgb)
             if cv2.waitKey(1) & 0xFF == ord('q'):
