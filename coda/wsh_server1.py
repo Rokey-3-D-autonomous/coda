@@ -309,7 +309,7 @@ class Server(Node):
 
         # TB0 복귀
         point = Point()
-        point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
+        point.x, point.y, point.z = [-0.83, -0.10, 0.0]  # 8번 위치, dock 하기 전 위치
         self.nav0_state = STATUS.NAV_WORKING
         self.nav0_pub2.publish(point)
 
