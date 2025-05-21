@@ -12,17 +12,11 @@ from builtin_interfaces.msg import Duration
 from std_msgs.msg import Int32
 
 
-# ===================== 터틀봇 컨트롤 노드 =====================
-# 순찰, 사고 출동, 경보, 종료 등 서버의 명령을 받아서 실행하는 노드
+# 경고 활성화 (0: beep + fullscreen 창)
+# ros2 topic pub -1 /robot1/dispatch_command std_msgs/Int32 "data: 0"
 
-
-"""
-TODO
-1. 이 노드 실행
-# 실행 예시 터미널에서
-# ros2 topic pub -1 /robot1/dispatch_command std_msgs/Int32 "data: 0" # 경고 끄기
-# ros2 topic pub -1 /robot1/dispatch_command std_msgs/Int32 "data: 1" # 경고 켜기
-"""
+# 경고 비활성화 (1: beep 중지 + 창 닫기)
+# ros2 topic pub -1 /robot1/dispatch_command std_msgs/Int32 "data: 1"
 
 
 class TurtlebotControllerNode(Node):
@@ -30,19 +24,19 @@ class TurtlebotControllerNode(Node):
         super().__init__("turtlebot1_controller_node")
 
         # 상태 변수
-        self.alarm_window = None  # Tkinter 윈도우 객체
+        self.alarm_window = None  # tkinter 윈도우 객체
         self.beep_active = False  # beep 상태
+        self.beep_thread = None   # beep 쓰레드 객체
 
-        # 반복 비프 퍼블리셔
+        # 비프 퍼블리셔
         self.beep_pub = self.create_publisher(AudioNoteVector, "/robot1/cmd_audio", 10)
 
-        # 경보/경고 명령 수신
+        # 명령 수신 구독
         self.create_subscription(
             Int32, "/robot1/dispatch_command", self.dispatch_command_callback, 10
         )
 
     def dispatch_command_callback(self, msg: Int32):
-        # 서버에서 온 명령 처리
         cmd = msg.data
         self.get_logger().info(f"명령 수신: {cmd}")
 
@@ -54,20 +48,30 @@ class TurtlebotControllerNode(Node):
             self.get_logger().warn(f"알 수 없는 명령: {cmd}")
 
     def activate_alert(self):
-        # 경고 활성화: 반복 비프 + 경고창
+        if self.beep_active:
+            self.get_logger().info("경고 이미 활성화 상태입니다.")
+            return
+
         self.get_logger().warn("경고 활성화: beep + 경고창")
         self.beep_active = True
-        threading.Thread(target=self.beep_loop, daemon=True).start()
-        self.show_warning_interface()
+
+        # 비프 쓰레드 시작
+        self.beep_thread = threading.Thread(target=self.beep_loop, daemon=True)
+        self.beep_thread.start()
+
+        # 경고창 쓰레드 실행
+        threading.Thread(target=self._run_warning_window, daemon=True).start()
 
     def deactivate_alert(self):
-        # 경고 비활성화: 비프 정지 + 창 닫기
+        if not self.beep_active:
+            self.get_logger().info("경고 이미 비활성화 상태입니다.")
+            return
+
         self.get_logger().warn("경고 비활성화: beep 중단 + 창 닫기")
         self.beep_active = False
         self.close_warning_interface()
 
     def beep_loop(self):
-        # 비프음 반복 전송 (0.5~1초 간격)
         beep_msg = AudioNoteVector()
         beep_msg.append = False
         beep_msg.notes = [
@@ -76,10 +80,11 @@ class TurtlebotControllerNode(Node):
         ]
 
         while self.beep_active:
+            self.get_logger().info("비프음 발송 중...")
             self.beep_pub.publish(beep_msg)
             time.sleep(1.0)
 
-    def show_warning_interface(self):
+    def _run_warning_window(self):
         self.alarm_window = tk.Tk()
         self.alarm_window.title("경고")
         self.alarm_window.attributes("-fullscreen", True)
@@ -94,18 +99,19 @@ class TurtlebotControllerNode(Node):
         )
         label.pack(expand=True)
 
+        self.get_logger().info("경고창 실행됨")
         self.alarm_window.mainloop()
 
     def close_warning_interface(self):
         if self.alarm_window:
             try:
-                self.alarm_window.destroy()
+                self.get_logger().info("경고창 닫는 중...")
+                self.alarm_window.after(0, self.alarm_window.destroy)
                 self.alarm_window = None
             except Exception as e:
                 self.get_logger().warn(f"경고창 닫기 실패: {e}")
 
 
-# ===================== [3] 메인 실행 =====================
 def main(args=None):
     rclpy.init(args=args)
 
