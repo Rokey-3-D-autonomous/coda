@@ -207,7 +207,7 @@ class Server(Node):
         self.nav1_state = STATUS.NAV_WORKING
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
         # 완료
-        self.nav1_pub.publish(self.make_msg(self.nav1_current_position))
+        self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
         self.get_logger().info(f'patrol pub: {self.nav1_current_position}')
         self.nav1_current_position += 1
 
@@ -231,11 +231,12 @@ class Server(Node):
         # TB0 촬영 위치로 이동
         self.nav0_state = STATUS.NAV_WORKING
         point = Point()
-        point.x, point.y, point.z = [
-            -1.67,
-            1.54,
-            0.0,
-        ]  # 7번 위치, 촬영 위치, 트랜스폼 값 넣어주기
+        # point.x, point.y, point.z = [
+        #     -1.67,
+        #     1.54,
+        #     0.0,
+        # ]  # 7번 위치, 촬영 위치, 트랜스폼 값 넣어주기
+        point.x, point.y, point.z = self.point
         self.nav0_pub2.publish(point)
 
     def dispatch(self):
