@@ -173,6 +173,10 @@ class Server(Node):
         # self.pcd_pub.publish(self.make_msg(0))
         self.nav0_pub.publish(self.make_msg(2))  # 8
         self.nav0_pub.publish(self.make_msg(3))  # 7
+        # self.nav1_pub.publish(self.make_msg(0))  # 5
+        # self.nav1_pub.publish(self.make_msg(1))  # 6
+
+        time.sleep(10.0)
 
         # pcd
         self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
