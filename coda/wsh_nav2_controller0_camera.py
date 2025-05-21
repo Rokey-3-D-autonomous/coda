@@ -19,7 +19,7 @@ from tf_transformations import quaternion_from_euler
 # ======================
 # 초기 설정 (파일 안에서 직접 정의)
 # ======================
-INITIAL_POSE_POSITION = [-0.83, 7.27]
+INITIAL_POSE_POSITION = [-0.34, -0.07]
 INITIAL_POSE_DIRECTION = TurtleBot4Directions.NORTH
 # INITIAL_POSE = (0.00, 0.00, TurtleBot4Directions.NORTH)
 """
