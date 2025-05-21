@@ -19,7 +19,7 @@ from tf_transformations import quaternion_from_euler
 # ======================
 # 초기 설정 (파일 안에서 직접 정의)
 # ======================
-INITIAL_POSE_POSITION = [-0.83, 7.27]
+INITIAL_POSE_POSITION = [-0.01, -0.01]
 INITIAL_POSE_DIRECTION = TurtleBot4Directions.NORTH
 # INITIAL_POSE = (0.00, 0.00, TurtleBot4Directions.NORTH)
 """
@@ -169,7 +169,7 @@ class NavController(Node):
 
         result_topic = Int32()
         result_topic.data = (
-            1 if result == TaskResult.SUCCEEDED else -2
+            self.current_goal if result == TaskResult.SUCCEEDED else -1
         )  # 제대로 도착했으면 goal위치, 아니면 -1
         self.goal_pub.publish(result_topic)  # 결과 퍼블리시
 
@@ -187,21 +187,13 @@ class NavController(Node):
             self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
 
     def move_to_goal(self, msg):
-        if msg.data == -1:
-            # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
-            self.get_logger().info(f"DOCKING TB0")
-            # docking
-            self.go_into_dock()
-            result_topic = Int32()
-            result_topic.data = -1
-            self.goal_pub.publish(result_topic)  # 결과 퍼블리시
-            return
-
         if msg.data < 0 or msg.data >= self.goal_total:
             # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
             self.get_logger().info(
                 f"go to last position in front of dock station: {msg.data}"
             )
+
+            # docking
             return
 
         self.pending_goal = True  # 목표 이동 중
@@ -229,7 +221,6 @@ class NavController(Node):
         self.goal_pub.publish(result_topic)  # 결과 퍼블리시
 
         if result == TaskResult.SUCCEEDED:
-
             self.pending_goal = False  # 목표 이동 완료
             self.nav_navigator.get_logger().info(
                 f"🏁 목표 {self.current_goal} 도달 성공"
