@@ -45,6 +45,7 @@ setup(
             "pcd = coda.part.pcd_to_html:main",
             "wsh_nav2_controller1 = coda.wsh_nav2_controller:main",
             "wsh_nav2_controller0 = coda.wsh_nav2_controller0_camera:main",
+            "alarm = coda.turtlebot1.turtle1_node_only_alarm:main",
         ],
     },
 )

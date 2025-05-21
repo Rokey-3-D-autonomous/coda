@@ -16,6 +16,15 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from geometry_msgs.msg import PoseStamped
 from tf_transformations import quaternion_from_euler
 
+# qos 추가
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+qos_profile_1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_5 = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10 = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10_default = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+
 # ======================
 # 초기 설정 (파일 안에서 직접 정의)
 # ======================
@@ -53,11 +62,11 @@ y: 2.10
 """
 GOAL_POSES = [
     # patrol route
-    ([-1.92, 5.33], TurtleBot4Directions.EAST),    # 5
-    ([-1.76, 3.77], TurtleBot4Directions.EAST),    # 6
-    ([-1.67, 1.54], TurtleBot4Directions.EAST),    # 7
-    ([-1.61, -0.38], TurtleBot4Directions.EAST),   # 8
-    ([-0.86, 7.10], TurtleBot4Directions.NORTH)     # home
+    ([-0.71, 5.56], TurtleBot4Directions.EAST),    # 4
+    ([-0.64, 3.51], TurtleBot4Directions.EAST),    # 3
+    ([-0.60, 1.62], TurtleBot4Directions.EAST),    # 2
+    ([-0.52, 0.33], TurtleBot4Directions.EAST),   # 1
+    ([-1.13, 7.10], TurtleBot4Directions.NORTH)     # home
 
     # last pose is in front of docking station
     # ([...]) -1
@@ -105,14 +114,14 @@ class NavController(Node):
         self.setup_navigation()
 
         # 도착 완료 시 보낼 퍼블리셔, timer 콜백에서 실행될 퍼블리셔
-        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE + "/goal_result", 10)
+        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE + "/goal_result", qos_profile_10)
 
         # 목표 지점 명령
         self.subscription = self.create_subscription(
-            Int32, TB1_NAMESPACE + "/goal_position", self.move_to_goal, 10
+            Int32, TB1_NAMESPACE + "/goal_position", self.move_to_goal, qos_profile_10
         )
         self.dock_subscription = self.create_subscription(
-            Int32, TB1_NAMESPACE + "/dock_command", self.go_into_dock, 10
+            Int32, TB1_NAMESPACE + "/dock_command", self.go_into_dock, qos_profile_10
         )
 
         self.get_logger().info('ready nav1 server')
@@ -173,6 +182,8 @@ class NavController(Node):
 
             # docking
             return
+        
+        self.get_logger().info(f'move_to_goal: {msg.data}')
 
         self.pending_goal = True  # 목표 이동 중
         self.current_goal = msg.data  # 현재 목표 위치
