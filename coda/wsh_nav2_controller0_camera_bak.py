@@ -187,18 +187,13 @@ class NavController(Node):
             self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
 
     def move_to_goal(self, msg):
-        if msg.data == -1:
-            # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
-            self.get_logger().info(f"DOCKING TB0")
-            # docking
-            self.go_into_dock()
-            return
-
         if msg.data < 0 or msg.data >= self.goal_total:
             # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
             self.get_logger().info(
                 f"go to last position in front of dock station: {msg.data}"
             )
+
+            # docking
             return
 
         self.pending_goal = True  # 목표 이동 중

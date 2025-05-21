@@ -18,10 +18,10 @@ class STATUS(Enum):
     """Docstring for MyEnum."""
 
     READY_FLAG = 0  # 준비
-    PATROL_FLAG = 1  # 순찰
-    DETECTED_FLAG = 2  # 감지
-    DISPATCH_FLAG = 3  # 출동 종료
-    EXIT_FLAG = 4  # 종료
+    PATROL_FLAG = 0  # 순찰
+    DETECTED_FLAG = 0  # 감지
+    DISPATCH_FLAG = 0  # 출동
+    EXIT_FLAG = 0  # 종료
 
 
 # robot namespace
@@ -33,7 +33,6 @@ NAV0_PUB = TB0_NAMESPACE + "/goal_position"
 NAV0_SUB = TB0_NAMESPACE + "/goal_result"
 NAV1_PUB = TB1_NAMESPACE + "/goal_position"
 NAV1_SUB = TB1_NAMESPACE + "/goal_result"
-
 CV_SUB_DETECTED = "/accident_detected"
 CV_SUB_POSITION = "/accident_position"
 UI_ALARM = TB1_NAMESPACE + "/dispatch_command"
@@ -44,15 +43,6 @@ SERVER_SUB = "/control_scenario"
 class Server(Node):
     def __init__(self):
         super().__init__("yolo_depth_to_map")
-
-        # DOING FLAG
-        self.status = 0  # 0: 대기, 1: 순찰, 2: 사고 감지, 3: 출동 종료
-
-        # MODULE STATE CHECK
-        self.nav0_state = 0  # 0: 정지 상태 -> 1: 이동 중
-        self.nav1_state = 0  # 0: 정지 상태 -> 1: 이동 중
-        self.cv_state = 0  # 카메라 촬영 대기 -> 촬영 실행 중 -> 촬영 완료
-        self.cv_position_state = 0  # 대기 -> 촬영 위치 수신 대기 -> 촬영 위치 수신 완료
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
@@ -90,7 +80,7 @@ class Server(Node):
         self.cv_sub = self.create_subscription(
             i32, CV_SUB_DETECTED, self._cv_suv_detected_callback, 10
         )
-        self.cv_sub_point = self.create_subscription(
+        self.cv_sub = self.create_subscription(
             Point, CV_SUB_POSITION, self._cv_suv_position_callback, 10
         )
 
@@ -105,42 +95,13 @@ class Server(Node):
             i32, SERVER_SUB, self.control_scenario, 10
         )
 
-    def update_loop(self):
-        # 대기 시 순찰 시작
-        if self.status == STATUS.READY_FLAG:
-            if self.nav1_current_position == 4:  # 이동 종료 시
-                self.status = STATUS.EXIT_FLAG
-            else:
-                self.status = STATUS.PATROL_FLAG
-                self.patrol()
-        # 순찰 중
-        elif self.status == STATUS.PATROL_FLAG:
-            if self.nav1_state == 0:  # 순찰 포지션 이동 완료
-                self.status = STATUS.READY_FLAG
-        # 사고 감지 시
-        elif self.status == STATUS.DETECTED_FLAG:
-            # 순찰 정보 수신 완료 시
-            if self.cv_position_state == 1:
-                self.detected()  # 각 로봇 이동 명령
-            if self.nav1_state == 0 and self.nav0_state == 0:  # 위치 이동 종료 시
-                self.status = STATUS.DISPATCH_FLAG
-        # 출동 종료 명령 시
-        elif self.status == STATUS.DISPATCH_FLAG:
-            self.dispatch()
-            if self.nav0_state == 0:  # TB0 복귀 포지션 이동 완료
-                self._dock(0)
-                self.status = STATUS.PATROL_FLAG
-        # 시나리오 종료 시
-        elif self.status == STATUS.EXIT_FLAG:
-            self.exit_scenario()
-
     def get_status(self) -> STATUS:
         return self.status
 
     def set_status(self, new_status: STATUS):
         self.status = new_status
 
-    def _make_msg(self, data):
+    def make_msg(self, data):
         msg = i32()
         msg.data = data
         return msg
@@ -162,20 +123,15 @@ class Server(Node):
         elif data == 4:
             self.get_logger().info("exit_scenario")
             self.exit_scenario()
+        elif data == 5:
+            self.get_logger().info("dispatch_test")
+            self.dispatch_test()
         else:
             self.get_logger().info("all_stop")
             self.all_stop()
         pass
 
-    def _update_flag(self, msg):
-        self.flag
-
-    def ready(self, TB_num):
-        """
-        ### 준비 상태
-
-        #### TB_num dock
-        """
+    def ready(self):
         self.set_status(STATUS.READY_FLAG)
         self.get_logger().info("[1/5] Ready to patrol...")
 
@@ -183,101 +139,81 @@ class Server(Node):
         self.set_status(STATUS.PATROL_FLAG)
         self.get_logger().info("[2/5] Patrol...")
 
-        # 이동
-        self.nav1_state = 1
-        self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
+        # 완료
+        self.nav1_pub.publish(self.make_msg(self.nav1_current_position))
         self.nav1_current_position += 1
 
     def detected(self):
-        """
-        ### 사고 감지
-
-        #### TB1 교통 안내 위치로 이동
-        #### TB1 교통 통제 시작
-        #### TB0 촬영 위치로 이동
-        """
         self.set_status(STATUS.DETECTED_FLAG)
         self.get_logger().info("[3/5] Detected...")
 
-        # TB1 교통 안내 위치로 이동
-        self.nav1_state = 1
-        self.nav1_pub.publish(self._make_msg(self.nav1_accident_position))
-        self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
-        # TB1 교통 통제 시작
-        self.ui_alarm_pub.publish(self._make_msg(0))  # alarm on
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(0))  # alarm on
 
-        # TB0 촬영 위치로 이동
-        self.nav0_state = 1
-        point = Point()
-        point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7번 위치, 촬영 위치
-        self.nav0_pub2.publish(point)
+        # 완료
+        self.nav1_pub.publish(
+            self.make_msg(self.nav1_accident_position)
+        )  # 차량 통제 위치로 가라
+        self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
 
     def dispatch(self):
-        """
-        ### 출동 종료 명령
-
-        #### PCD 촬영
-        #### TB0 복귀
-        #### TB1 교통 통제 종료
-        """
+        self.set_status(STATUS.DISPATCH_FLAG)
         self.get_logger().info("[4/5] Dispatch...")
 
-        # PCD 촬영
-        self.pcd_pub.publish(self._make_msg(0))  # 사진 촬영
-        # self.cv_state = 0
-        # self.cv_position_state = 0
-
-        # TB0 복귀
+        # 촬영 위치 pose
         point = Point()
-        point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
-        self.nav0_pub2.publish(point)
-        self.nav0_state = 1
+        # point.x, point.y, point.z = self.point
+        point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7
+        self.nav0_pub2.publish(point)  # 촬영 위치로 가라
 
-        # TB1 교통 통제 종료
-        self.ui_alarm_pub.publish(self._make_msg(1))  # alarm off
+        # pcd
+        self.pcd_pub.publish(self.make_msg(0))  # 사진 촬영
 
-    def _dock(self, TB_num):
-        """
-        ### 도킹 시작
-        """
-        if TB_num == 0:
-            self.nav0_pub.publish(self._make_msg(-1))  # TB0 도킹
-            self.get_logger().info("TB0 DOCKING...")
-        elif TB_num == 1:
-            self.nav1_pub.publish(self._make_msg(-1))  # TB0 도킹
-            self.get_logger().info("TB1 DOCKING...")
+        point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8
+        self.nav0_pub2.publish(point)  # 복귀해라
+
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(1))  # alarm off
+
+    def dispatch_test(self):
+        self.set_status(STATUS.DISPATCH_FLAG)
+        self.get_logger().info("[4/5] Dispatch...")
+
+        # self.pcd_pub.publish(self.make_msg(0))
+        self.nav0_pub.publish(self.make_msg(2))  # 8
+        self.nav0_pub.publish(self.make_msg(3))  # 7
+        self.nav0_pub.publish(self.make_msg(2))  # 8
+
+        # 완료
+        self.ui_alarm_pub.publish(self.make_msg(1))  # alarm off
 
     def exit_scenario(self):
-        self._dock(1)
         self.set_status(STATUS.EXIT_FLAG)
-        self.get_logger().info("[5/5] Exit Scenario...")
+        self.get_logger().info("[5/5] Exit...")
+
+        self.nav0_pub.publish(self.make_msg(0))
+
+        # 완료
+        self.nav1_pub.publish(self.make_msg(0))
+        self.ui_alarm_pub.publish(self.make_msg(1))  # alarm off
 
     def all_stop(self):
         pass
 
     def _nav0_sub_callback(self, msg):
-        self.get_logger().info(f"_nav0_sub_callback: {msg.data}")
-        if msg.data == 0:
-            self.nav0_state = 0  # 이동 완료
+        self.get_logger().info(f"_nav0_sub_callback: {msg}")
         pass
 
     def _nav1_sub_callback(self, msg):
-        self.get_logger().info(f"_nav1_sub_callback: {msg.data}")
-        if msg.data == 0:
-            self.nav1_state = 0  # 이동 완료
-            self.status = STATUS.READY_FLAG
+        self.get_logger().info(f"_nav1_sub_callback: {msg}")
         pass
 
     def _cv_suv_detected_callback(self, msg):
-        if self.cv_state == 0:  # 최초 감지 1회만 동작
-            self.status = STATUS.DETECTED_FLAG  # 사고 감지 상태
-            self.cv_state = 1
-            self.get_logger().info(f"_cv_suv_detected_callback: {msg}")
-            self.get_logger().info(f"_cv_suv_detected_callback: Accident Detected!!!")
+        self.get_logger().info(f"_cv_suv_detected_callback: {msg}")
+        self.get_logger().info(f"_cv_suv_detected_callback: Accident Detected!!!")
         pass
 
     def _cv_suv_position_callback(self, msg):
-        self.cv_position_state = 1
         self.get_logger().info(f"_cv_suv_position_callback: {msg}")
         x, y, z = self.tf_cam2map(msg.x, msg.y, msg.z)
         self.get_logger().info(f"x, y, z : {x}, {y}, {z}")

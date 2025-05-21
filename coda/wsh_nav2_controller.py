@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 import numpy as np
-if not hasattr(np, 'float'):
+
+if not hasattr(np, "float"):
     np.float = float
 
 import rclpy
@@ -52,11 +53,10 @@ y: 2.10
 """
 GOAL_POSES = [
     # patrol route
-    ([-1.92, 5.33], TurtleBot4Directions.NORTH),    # 5
-    ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
-    ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
-    ([-1.61, -0.38], TurtleBot4Directions.NORTH),   # 8
-
+    ([-1.92, 5.33], TurtleBot4Directions.NORTH),  # 5
+    ([-1.76, 3.77], TurtleBot4Directions.NORTH),  # 6
+    ([-1.67, 1.54], TurtleBot4Directions.NORTH),  # 7
+    ([-1.61, -0.38], TurtleBot4Directions.NORTH),  # 8
     # last pose is in front of docking station
     # ([...]) -1
 ]
@@ -73,7 +73,7 @@ def setup_navigation(self): 네비게이션 셋업
 def move_to_goal(self, msg): 목표 이동
 def go_into_dock(self): 도킹 시작, 함수 구현완료, 현재는 노드 내에 실행되는 부분은 없음
 """
- 
+
 """
 TODO
 1. locailiation 실행
@@ -93,8 +93,8 @@ class NavController(Node):
     def __init__(self):
         super().__init__("nav_controller_node")
         self.dock_navigator = TurtleBot4Navigator()
-        self.nav_navigator = BasicNavigator(node_name='navigator_node')
-        self.get_logger().info('initialize navigator')
+        self.nav_navigator = BasicNavigator(node_name="navigator_node")
+        self.get_logger().info("initialize navigator")
 
         self.current_goal = 0  # 현재 목표 위치
         self.goal_total = len(GOAL_POSES)  # 총 목표 개수
@@ -103,11 +103,14 @@ class NavController(Node):
         self.setup_navigation()
 
         # 도착 완료 시 보낼 퍼블리셔, timer 콜백에서 실행될 퍼블리셔
-        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE+"/goal_result", 10)
+        self.goal_pub = self.create_publisher(Int32, TB1_NAMESPACE + "/goal_result", 10)
 
         # 목표 지점 명령
         self.subscription = self.create_subscription(
-            Int32, TB1_NAMESPACE+"/goal_position", self.move_to_goal, 10
+            Int32, TB1_NAMESPACE + "/goal_position", self.move_to_goal, 10
+        )
+        self.dock_subscription = self.create_subscription(
+            Int32, TB1_NAMESPACE + "/dock_command", self.go_into_dock, 10
         )
 
     def create_pose(self, pose, navigator) -> PoseStamped:
@@ -117,7 +120,7 @@ class NavController(Node):
 
         """x, y, yaw(도 단위) → PoseStamped 생성"""
         pose = PoseStamped()
-        pose.header.frame_id = 'map'
+        pose.header.frame_id = "map"
         pose.header.stamp = navigator.get_clock().now().to_msg()
         pose.pose.position.x = x
         pose.pose.position.y = y
@@ -134,19 +137,30 @@ class NavController(Node):
         if not self.dock_navigator.getDockedStatus():
             self.dock_navigator.info("Docking before initializing pose")
             self.dock_navigator.dock()
-        
-        initial_pose = self.create_pose((INITIAL_POSE_POSITION, INITIAL_POSE_DIRECTION), self.nav_navigator)
+
+        initial_pose = self.create_pose(
+            (INITIAL_POSE_POSITION, INITIAL_POSE_DIRECTION), self.nav_navigator
+        )
         self.nav_navigator.setInitialPose(initial_pose)
 
-        self.get_logger().info('incoming')
+        self.get_logger().info("incoming")
         self.nav_navigator.waitUntilNav2Active()
-        self.get_logger().info('done waiting for nav active')
+        self.get_logger().info("done waiting for nav active")
         self.dock_navigator.undock()
 
     def move_to_goal(self, msg):
+        if msg.data == -1:
+            # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
+            self.get_logger().info(f"DOCKING TB1")
+            # docking
+            self.go_into_dock()
+            return
+
         if msg.data < 0 or msg.data >= self.goal_total:
             # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
-            self.get_logger().info(f"go to last position in front of dock station: {msg.data}")
+            self.get_logger().info(
+                f"go to last position in front of dock station: {msg.data}"
+            )
 
             # docking
             return
@@ -155,7 +169,7 @@ class NavController(Node):
         self.current_goal = msg.data  # 현재 목표 위치
 
         position, direction = GOAL_POSES[self.current_goal]
-        goal_pose = self.create_pose((position, direction),self.nav_navigator)
+        goal_pose = self.create_pose((position, direction), self.nav_navigator)
 
         self.get_logger().info(f"📍 목표 {msg.data}")
 
@@ -165,8 +179,7 @@ class NavController(Node):
             feedback = self.nav_navigator.getFeedback()
             if feedback:
                 remaining = feedback.distance_remaining
-                self.nav_navigator.get_logger().info(f'남은 거리: {remaining:2f} m')
-
+                self.nav_navigator.get_logger().info(f"남은 거리: {remaining:2f} m")
 
         result = self.nav_navigator.getResult()
 
@@ -178,15 +191,16 @@ class NavController(Node):
 
         if result == TaskResult.SUCCEEDED:
             self.pending_goal = False  # 목표 이동 완료
-            self.nav_navigator.get_logger().info(f"🏁 목표 {self.current_goal} 도달 성공")
+            self.nav_navigator.get_logger().info(
+                f"🏁 목표 {self.current_goal} 도달 성공"
+            )
             # self.go_into_dock()
         elif result == TaskResult.CANCELED:
-            self.nav_navigator.get_logger().warn('이동이 취소되었습니다.')
+            self.nav_navigator.get_logger().warn("이동이 취소되었습니다.")
         elif result == TaskResult.FAILED:
             self.nav_navigator.get_logger().error(f"❌ 목표 {self.current_goal} 실패")
         else:
             self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
-
 
     # 컨트롤 서버에서 토픽 전송 시 호출되는 콜백
     # 도킹 시작
@@ -194,6 +208,7 @@ class NavController(Node):
         self.dock_navigator.get_logger().info("✅ 모든 목표 도달 완료. 도킹 시작")
         self.dock_navigator.dock()
         self.dock_navigator.get_logger().info("✅ 도킹 요청 완료")
+
 
 def main():
     rclpy.init()
