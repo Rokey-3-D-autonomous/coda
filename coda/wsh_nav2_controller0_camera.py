@@ -169,7 +169,7 @@ class NavController(Node):
 
         result_topic = Int32()
         result_topic.data = (
-            self.current_goal if result == TaskResult.SUCCEEDED else -1
+            1 if result == TaskResult.SUCCEEDED else -2
         )  # 제대로 도착했으면 goal위치, 아니면 -1
         self.goal_pub.publish(result_topic)  # 결과 퍼블리시
 
@@ -192,6 +192,9 @@ class NavController(Node):
             self.get_logger().info(f"DOCKING TB0")
             # docking
             self.go_into_dock()
+            result_topic = Int32()
+            result_topic.data = -1
+            self.goal_pub.publish(result_topic)  # 결과 퍼블리시
             return
 
         if msg.data < 0 or msg.data >= self.goal_total:
