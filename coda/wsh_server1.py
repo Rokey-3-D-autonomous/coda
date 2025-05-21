@@ -12,6 +12,13 @@ from geometry_msgs.msg import PointStamped, PoseStamped, Point
 import tf2_ros
 import tf2_geometry_msgs  # 꼭 필요
 
+# qos 추가
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+qos_profile_1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_5 = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10 = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+
 
 # system status
 class STATUS(Enum):
@@ -80,35 +87,35 @@ class Server(Node):
 
         # ======= topics ======= #
         # nav0
-        self.nav0_pub = self.create_publisher(i32, NAV0_PUB, 10)
+        self.nav0_pub = self.create_publisher(i32, NAV0_PUB, qos_profile_10)
         self.nav0_pub2 = self.create_publisher(
-            Point, NAV0_PUB + "2", 10
+            Point, NAV0_PUB + "2", qos_profile_10
         )  # yolo에서 탐지한 좌표로 이동
         self.nav0_sub = self.create_subscription(
-            i32, NAV0_SUB, self._nav0_sub_callback, 10
+            i32, NAV0_SUB, self._nav0_sub_callback, qos_profile_10
         )
         # nav1
-        self.nav1_pub = self.create_publisher(i32, NAV1_PUB, 10)
+        self.nav1_pub = self.create_publisher(i32, NAV1_PUB, qos_profile_10)
         self.nav1_sub = self.create_subscription(
-            i32, NAV1_SUB, self._nav1_sub_callback, 10
+            i32, NAV1_SUB, self._nav1_sub_callback, qos_profile_10
         )
         # cv
         self.cv_sub = self.create_subscription(
-            i32, CV_SUB_DETECTED, self._cv_suv_detected_callback, 10
+            i32, CV_SUB_DETECTED, self._cv_suv_detected_callback, qos_profile_10
         )
         self.cv_sub_point = self.create_subscription(
-            Point, CV_SUB_POSITION, self._cv_suv_position_callback, 10
+            Point, CV_SUB_POSITION, self._cv_suv_position_callback, qos_profile_10
         )
 
         # ui/alarm
-        self.ui_alarm_pub = self.create_publisher(i32, UI_ALARM, 10)
+        self.ui_alarm_pub = self.create_publisher(i32, UI_ALARM, qos_profile_10)
 
         # pcd
-        self.pcd_pub = self.create_publisher(i32, PHOTO_PUB, 10)
+        self.pcd_pub = self.create_publisher(i32, PHOTO_PUB, qos_profile_10)
 
         # control scenario
         self.control_scenario_sub = self.create_subscription(
-            i32, SERVER_SUB, self.control_scenario, 10
+            i32, SERVER_SUB, self.control_scenario, qos_profile_10
         )
 
     def update_loop(self):
@@ -140,19 +147,6 @@ class Server(Node):
                 self.detected()  # 각 로봇 이동 명령
                 self.cv_position_state = 2
 
-            # if self.cv_position_state == 2:
-            #     self.get_logger().info("aaa")
-            # else:
-            #     self.get_logger().info("bbb")
-            # if self.nav1_state == STATUS.NAV_DONE:
-            #     self.get_logger().info("ccc")
-            # else:
-            #     self.get_logger().info("ddd")
-            # if self.nav0_state == STATUS.NAV_DONE:
-            #     self.get_logger().info("eee")
-            # else:
-            #     self.get_logger().info("fff")
-
         # 출동 종료 명령 시
         elif self.status == STATUS.DISPATCH_FLAG:
 
@@ -164,20 +158,11 @@ class Server(Node):
             if self.dispatch_state == 0:
                 self.dispatch_state = 1
                 self.dispatch()
-
-            if self.nav1_state == STATUS.NAV_DONE:
-                self.get_logger().info("aaa")
-            else:
-                self.get_logger().info("bbb")
-            if self.nav0_state == STATUS.NAV_DONE:
-                self.get_logger().info("ccc")
-            else:
-                self.get_logger().info("ddd")
         # 시나리오 종료 시
         elif self.status == STATUS.EXIT_FLAG:
             self.exit_scenario()
 
-        self.get_logger().info('ready')
+        self.get_logger().info("ready")
 
     def get_status(self) -> STATUS:
         return self.status
@@ -224,7 +209,7 @@ class Server(Node):
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
         # 완료
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
-        self.get_logger().info(f'patrol pub: {self.nav1_current_position}')
+        self.get_logger().info(f"patrol pub: {self.nav1_current_position}")
         self.nav1_current_position += 1
 
     def detected(self):
