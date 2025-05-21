@@ -55,8 +55,9 @@ GOAL_POSES = [
     # patrol route
     ([-1.92, 5.33], TurtleBot4Directions.EAST),    # 5
     ([-1.76, 3.77], TurtleBot4Directions.EAST),    # 6
-    ([-1.67, 1.54], TurtleBot4Directions.NORTH),    # 7
-    ([-1.61, -0.38], TurtleBot4Directions.NORTH),   # 8
+    ([-1.67, 1.54], TurtleBot4Directions.EAST),    # 7
+    ([-1.61, -0.38], TurtleBot4Directions.EAST),   # 8
+    ([-0.86, 7.10], TurtleBot4Directions.NORTH)     # home
 
     # last pose is in front of docking station
     # ([...]) -1

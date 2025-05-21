@@ -153,7 +153,7 @@ class NavController(Node):
         detection 후 tf한 촬영 좌표로 이동
         """
         x, y, z = msg.x, msg.y, msg.z
-        goal_pose = self.create_pose(([x, y], 0), self.nav_navigator)
+        goal_pose = self.create_pose(([x, y], z), self.nav_navigator)
 
         self.get_logger().info(f"📍 목표 {goal_pose.x}, {goal_pose.y}")
 
@@ -197,50 +197,50 @@ class NavController(Node):
             self.goal_pub.publish(result_topic)  # 결과 퍼블리시
             return
 
-        if msg.data < 0 or msg.data >= self.goal_total:
-            # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
-            self.get_logger().info(
-                f"go to last position in front of dock station: {msg.data}"
-            )
-            return
+        # if msg.data < 0 or msg.data >= self.goal_total:
+        #     # self.get_logger().warn(f"⚠️ 잘못된 목표 인덱스: {msg.data}")
+        #     self.get_logger().info(
+        #         f"go to last position in front of dock station: {msg.data}"
+        #     )
+        #     return
 
-        self.pending_goal = True  # 목표 이동 중
-        self.current_goal = msg.data  # 현재 목표 위치
+        # self.pending_goal = True  # 목표 이동 중
+        # self.current_goal = msg.data  # 현재 목표 위치
 
-        position, direction = GOAL_POSES[self.current_goal]
-        goal_pose = self.create_pose((position, direction), self.nav_navigator)
+        # position, direction = GOAL_POSES[self.current_goal]
+        # goal_pose = self.create_pose((position, direction), self.nav_navigator)
 
-        self.get_logger().info(f"📍 목표 {msg.data}")
+        # self.get_logger().info(f"📍 목표 {msg.data}")
 
-        self.nav_navigator.goToPose(goal_pose)
+        # self.nav_navigator.goToPose(goal_pose)
 
-        while not self.nav_navigator.isTaskComplete():
-            feedback = self.nav_navigator.getFeedback()
-            if feedback:
-                remaining = feedback.distance_remaining
-                self.nav_navigator.get_logger().info(f"남은 거리: {remaining:2f} m")
+        # while not self.nav_navigator.isTaskComplete():
+        #     feedback = self.nav_navigator.getFeedback()
+        #     if feedback:
+        #         remaining = feedback.distance_remaining
+        #         self.nav_navigator.get_logger().info(f"남은 거리: {remaining:2f} m")
 
-        result = self.nav_navigator.getResult()
+        # result = self.nav_navigator.getResult()
 
-        result_topic = Int32()
-        result_topic.data = (
-            self.current_goal if result == TaskResult.SUCCEEDED else -1
-        )  # 제대로 도착했으면 goal위치, 아니면 -1
-        self.goal_pub.publish(result_topic)  # 결과 퍼블리시
+        # result_topic = Int32()
+        # result_topic.data = (
+        #     self.current_goal if result == TaskResult.SUCCEEDED else -1
+        # )  # 제대로 도착했으면 goal위치, 아니면 -1
+        # self.goal_pub.publish(result_topic)  # 결과 퍼블리시
 
-        if result == TaskResult.SUCCEEDED:
+        # if result == TaskResult.SUCCEEDED:
 
-            self.pending_goal = False  # 목표 이동 완료
-            self.nav_navigator.get_logger().info(
-                f"🏁 목표 {self.current_goal} 도달 성공"
-            )
-            # self.go_into_dock()
-        elif result == TaskResult.CANCELED:
-            self.nav_navigator.get_logger().warn("이동이 취소되었습니다.")
-        elif result == TaskResult.FAILED:
-            self.nav_navigator.get_logger().error(f"❌ 목표 {self.current_goal} 실패")
-        else:
-            self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
+        #     self.pending_goal = False  # 목표 이동 완료
+        #     self.nav_navigator.get_logger().info(
+        #         f"🏁 목표 {self.current_goal} 도달 성공"
+        #     )
+        #     # self.go_into_dock()
+        # elif result == TaskResult.CANCELED:
+        #     self.nav_navigator.get_logger().warn("이동이 취소되었습니다.")
+        # elif result == TaskResult.FAILED:
+        #     self.nav_navigator.get_logger().error(f"❌ 목표 {self.current_goal} 실패")
+        # else:
+        #     self.nav_navigator.get_logger().warn("알 수 없는 오류 발생")
 
     # 컨트롤 서버에서 토픽 전송 시 호출되는 콜백
     # 도킹 시작

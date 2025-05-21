@@ -114,7 +114,7 @@ class Server(Node):
     def update_loop(self):
         # 대기 시 순찰 시작
         if self.status == STATUS.READY_FLAG:
-            if self.nav1_current_position >= 4:  # 이동 종료 시
+            if self.nav1_current_position >= 5:  # 이동 종료 시
                 self.set_status(STATUS.EXIT_FLAG)
             else:
                 self.set_status(STATUS.PATROL_FLAG)
@@ -273,7 +273,7 @@ class Server(Node):
 
         # TB0 복귀
         point = Point()
-        point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
+        point.x, point.y, point.z = [-0.55, -0.37, 0.0]  # 8번 위치, dock 하기 전 위치
         self.nav0_state = STATUS.NAV_WORKING
         self.nav0_pub2.publish(point)
 
