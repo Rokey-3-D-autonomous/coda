@@ -55,7 +55,7 @@ GOAL_POSES = [
     ([-1.92, 5.33], TurtleBot4Directions.NORTH),    # 5
     ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
     ([-1.67, 1.54], TurtleBot4Directions.WEST),    # 7
-    ([-1.61, -0.38], TurtleBot4Directions.WEST),   # 8
+    ([-1.61, -0.07], TurtleBot4Directions.WEST),   # 8
 
     # last pose is in front of docking station
     # ([...]) -1
