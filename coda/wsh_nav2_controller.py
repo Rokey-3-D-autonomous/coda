@@ -93,7 +93,7 @@ class NavController(Node):
     def __init__(self):
         super().__init__("nav_controller_node")
         self.dock_navigator = TurtleBot4Navigator()
-        self.nav_navigator = BasicNavigator(node_name='navigator_node')
+        self.nav_navigator = BasicNavigator(node_name='navigator_node1')
         self.get_logger().info('initialize navigator')
 
         self.current_goal = 0  # 현재 목표 위치
