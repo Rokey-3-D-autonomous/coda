@@ -23,6 +23,9 @@ class STATUS(Enum):
     DISPATCH_FLAG = 3  # 출동 종료
     EXIT_FLAG = 4  # 종료
 
+    NAV_DONE = 0
+    NAV_WORKING = 1
+
 
 # robot namespace
 TB0_NAMESPACE = "/robot0"  # photo
@@ -46,19 +49,18 @@ class Server(Node):
         super().__init__("yolo_depth_to_map")
 
         # DOING FLAG
-        self.status = 0  # 0: 대기, 1: 순찰, 2: 사고 감지, 3: 출동 종료
+        self.status = STATUS.READY_FLAG
 
         # MODULE STATE CHECK
-        self.nav0_state = 0  # 0: 정지 상태 -> 1: 이동 중
-        self.nav1_state = 0  # 0: 정지 상태 -> 1: 이동 중
+        self.nav0_state = STATUS.NAV_DONE
+        self.nav1_state = STATUS.NAV_DONE
         self.cv_state = 0  # 카메라 촬영 대기 -> 촬영 실행 중 -> 촬영 완료
         self.cv_position_state = 0  # 대기 -> 촬영 위치 수신 대기 -> 촬영 위치 수신 완료
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
-        self.nav1_accident_position = (
-            1  # ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
-        )
+        # ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
+        self.nav1_accident_position = 1
 
         # TF 설정
         self.tf_buffer = tf2_ros.Buffer()
@@ -71,6 +73,9 @@ class Server(Node):
         self.get_logger().info("[1/5] Initialize server node...")
 
         self.status: STATUS = STATUS.READY_FLAG  # initialize status
+
+        # ======= Main loop ======= #
+        self.create_timer(1.0, self.update_loop)  # 1초 주기로 update_loop 실행
 
         # ======= topics ======= #
         # nav0
@@ -115,19 +120,24 @@ class Server(Node):
                 self.patrol()
         # 순찰 중
         elif self.status == STATUS.PATROL_FLAG:
-            if self.nav1_state == 0:  # 순찰 포지션 이동 완료
+            if self.nav1_state == STATUS.NAV_DONE:  # 순찰 포지션 이동 완료
                 self.status = STATUS.READY_FLAG
         # 사고 감지 시
         elif self.status == STATUS.DETECTED_FLAG:
             # 순찰 정보 수신 완료 시
             if self.cv_position_state == 1:
                 self.detected()  # 각 로봇 이동 명령
-            if self.nav1_state == 0 and self.nav0_state == 0:  # 위치 이동 종료 시
+
+            # 위치 이동 종료 시
+            if (
+                self.nav1_state == STATUS.NAV_DONE
+                and self.nav0_state == STATUS.NAV_DONE
+            ):
                 self.status = STATUS.DISPATCH_FLAG
         # 출동 종료 명령 시
         elif self.status == STATUS.DISPATCH_FLAG:
             self.dispatch()
-            if self.nav0_state == 0:  # TB0 복귀 포지션 이동 완료
+            if self.nav0_state == STATUS.NAV_DONE:  # TB0 복귀 포지션 이동 완료
                 self._dock(0)
                 self.status = STATUS.PATROL_FLAG
         # 시나리오 종료 시
@@ -165,17 +175,8 @@ class Server(Node):
         else:
             self.get_logger().info("all_stop")
             self.all_stop()
-        pass
 
-    def _update_flag(self, msg):
-        self.flag
-
-    def ready(self, TB_num):
-        """
-        ### 준비 상태
-
-        #### TB_num dock
-        """
+    def ready(self):
         self.set_status(STATUS.READY_FLAG)
         self.get_logger().info("[1/5] Ready to patrol...")
 
@@ -184,7 +185,7 @@ class Server(Node):
         self.get_logger().info("[2/5] Patrol...")
 
         # 이동
-        self.nav1_state = 1
+        self.nav1_state = STATUS.NAV_WORKING
         self.nav1_pub.publish(self._make_msg(self.nav1_current_position))
         self.nav1_current_position += 1
 
@@ -200,14 +201,14 @@ class Server(Node):
         self.get_logger().info("[3/5] Detected...")
 
         # TB1 교통 안내 위치로 이동
-        self.nav1_state = 1
+        self.nav1_state = STATUS.NAV_WORKING
         self.nav1_pub.publish(self._make_msg(self.nav1_accident_position))
         self.nav1_current_position -= 1  # 순찰 미완료로 원래 위치 저장
         # TB1 교통 통제 시작
         self.ui_alarm_pub.publish(self._make_msg(0))  # alarm on
 
         # TB0 촬영 위치로 이동
-        self.nav0_state = 1
+        self.nav0_state = STATUS.NAV_WORKING
         point = Point()
         point.x, point.y, point.z = [-1.67, 1.54, 0.0]  # 7번 위치, 촬영 위치
         self.nav0_pub2.publish(point)
@@ -231,7 +232,7 @@ class Server(Node):
         point = Point()
         point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
         self.nav0_pub2.publish(point)
-        self.nav0_state = 1
+        self.nav0_state = STATUS.NAV_WORKING
 
         # TB1 교통 통제 종료
         self.ui_alarm_pub.publish(self._make_msg(1))  # alarm off
@@ -258,15 +259,13 @@ class Server(Node):
     def _nav0_sub_callback(self, msg):
         self.get_logger().info(f"_nav0_sub_callback: {msg.data}")
         if msg.data == 0:
-            self.nav0_state = 0  # 이동 완료
-        pass
+            self.nav0_state = STATUS.NAV_DONE  # 이동 완료
 
     def _nav1_sub_callback(self, msg):
         self.get_logger().info(f"_nav1_sub_callback: {msg.data}")
         if msg.data == 0:
-            self.nav1_state = 0  # 이동 완료
+            self.nav1_state = STATUS.NAV_DONE  # 이동 완료
             self.status = STATUS.READY_FLAG
-        pass
 
     def _cv_suv_detected_callback(self, msg):
         if self.cv_state == 0:  # 최초 감지 1회만 동작
@@ -274,14 +273,13 @@ class Server(Node):
             self.cv_state = 1
             self.get_logger().info(f"_cv_suv_detected_callback: {msg}")
             self.get_logger().info(f"_cv_suv_detected_callback: Accident Detected!!!")
-        pass
 
     def _cv_suv_position_callback(self, msg):
         self.cv_position_state = 1
         self.get_logger().info(f"_cv_suv_position_callback: {msg}")
         x, y, z = self.tf_cam2map(msg.x, msg.y, msg.z)
         self.get_logger().info(f"x, y, z : {x}, {y}, {z}")
-        self.point = [x, y, z]
+        self.point = [x, y, z]  # ???
 
     def tf_cam2map(self, x, y, z):
         try:
