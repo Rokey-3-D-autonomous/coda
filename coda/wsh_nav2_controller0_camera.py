@@ -53,14 +53,15 @@ y: 2.10
 """
 GOAL_POSES = [
     # patrol route
-    ([-1.92, 5.33], TurtleBot4Directions.NORTH),  # 5
-    ([-1.76, 3.77], TurtleBot4Directions.NORTH),  # 6
-    ([-1.67, 1.54], TurtleBot4Directions.NORTH),  # 7
-    ([-1.61, -0.38], TurtleBot4Directions.NORTH),  # 8
+    ([-1.92, 5.33], TurtleBot4Directions.NORTH),    # 5
+    ([-1.76, 3.77], TurtleBot4Directions.NORTH),    # 6
+    ([-1.67, 1.54], TurtleBot4Directions.WEST),    # 7
+    ([-1.61, -0.07], TurtleBot4Directions.WEST),   # 8
+
     # last pose is in front of docking station
     # ([...]) -1
 ]
-ACCIDENT_POSE = [0.01, -0.01]
+ACCIDENT_POSE = [1.69, -0.01]
 
 # robot namespace
 TB0_NAMESPACE = "/robot0"  # photo
@@ -93,8 +94,8 @@ class NavController(Node):
     def __init__(self):
         super().__init__("nav_controller_node")
         self.dock_navigator = TurtleBot4Navigator()
-        self.nav_navigator = BasicNavigator(node_name="navigator_node")
-        self.get_logger().info("initialize navigator")
+        self.nav_navigator = BasicNavigator(node_name='navigator_node0')
+        self.get_logger().info('initialize navigator')
 
         self.current_goal = 0  # 현재 목표 위치
         self.goal_total = len(GOAL_POSES)  # 총 목표 개수
@@ -112,6 +113,8 @@ class NavController(Node):
         self.subscription2 = self.create_subscription(
             Point, TB0_NAMESPACE + "/goal_position2", self.move_to_goal2, 10
         )
+
+        self.get_logger().info('ready nav1 server')
 
     def create_pose(self, pose, navigator) -> PoseStamped:
         x, y = pose[0][0], pose[0][1]
@@ -134,6 +137,8 @@ class NavController(Node):
         return pose
 
     def setup_navigation(self):
+        self.get_logger().info('start setup nav1')
+        self.get_logger().info(f'dock status : {self.dock_navigator.getDockedStatus()}')
         if not self.dock_navigator.getDockedStatus():
             self.dock_navigator.info("Docking before initializing pose")
             self.dock_navigator.dock()
