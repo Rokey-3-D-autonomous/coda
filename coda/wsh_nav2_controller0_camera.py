@@ -226,6 +226,7 @@ class NavController(Node):
         self.goal_pub.publish(result_topic)  # 결과 퍼블리시
 
         if result == TaskResult.SUCCEEDED:
+
             self.pending_goal = False  # 목표 이동 완료
             self.nav_navigator.get_logger().info(
                 f"🏁 목표 {self.current_goal} 도달 성공"

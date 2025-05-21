@@ -49,7 +49,7 @@ class Server(Node):
         super().__init__("yolo_depth_to_map")
 
         # DOING FLAG
-        self.status = STATUS.READY_FLAG
+        self.set_status(STATUS.READY_FLAG)
 
         # MODULE STATE CHECK
         self.nav0_state = STATUS.NAV_DONE
@@ -113,33 +113,51 @@ class Server(Node):
     def update_loop(self):
         # 대기 시 순찰 시작
         if self.status == STATUS.READY_FLAG:
-            if self.nav1_current_position == 4:  # 이동 종료 시
-                self.status = STATUS.EXIT_FLAG
+            if self.nav1_current_position >= 4:  # 이동 종료 시
+                self.set_status(STATUS.EXIT_FLAG)
             else:
-                self.status = STATUS.PATROL_FLAG
+                self.set_status(STATUS.PATROL_FLAG)
                 self.patrol()
         # 순찰 중
         elif self.status == STATUS.PATROL_FLAG:
             if self.nav1_state == STATUS.NAV_DONE:  # 순찰 포지션 이동 완료
-                self.status = STATUS.READY_FLAG
+                self.set_status(STATUS.READY_FLAG)
         # 사고 감지 시
         elif self.status == STATUS.DETECTED_FLAG:
-            # 순찰 정보 수신 완료 시
-            if self.cv_position_state == 1:
-                self.detected()  # 각 로봇 이동 명령
-
             # 위치 이동 종료 시
             if (
-                self.nav1_state == STATUS.NAV_DONE
-                and self.nav0_state == STATUS.NAV_DONE
+                self.cv_position_state == 2  # 위치 감지
+                and self.nav1_state == STATUS.NAV_DONE  # 1 도착
+                and self.nav0_state == STATUS.NAV_DONE  # 0 도착
             ):
-                self.status = STATUS.DISPATCH_FLAG
+                self.get_logger().info("1")
+                self.set_status(STATUS.DISPATCH_FLAG)
+
+            # 순찰 정보 수신 완료 시
+            elif self.cv_position_state == 1:
+                self.get_logger().info("2")
+                self.detected()  # 각 로봇 이동 명령
+                self.cv_position_state = 2
+
+            # if self.cv_position_state == 2:
+            #     self.get_logger().info("aaa")
+            # else:
+            #     self.get_logger().info("bbb")
+            # if self.nav1_state == STATUS.NAV_DONE:
+            #     self.get_logger().info("ccc")
+            # else:
+            #     self.get_logger().info("ddd")
+            # if self.nav0_state == STATUS.NAV_DONE:
+            #     self.get_logger().info("eee")
+            # else:
+            #     self.get_logger().info("fff")
+
         # 출동 종료 명령 시
         elif self.status == STATUS.DISPATCH_FLAG:
             self.dispatch()
             if self.nav0_state == STATUS.NAV_DONE:  # TB0 복귀 포지션 이동 완료
                 self._dock(0)
-                self.status = STATUS.PATROL_FLAG
+                self.set_status(STATUS.PATROL_FLAG)
         # 시나리오 종료 시
         elif self.status == STATUS.EXIT_FLAG:
             self.exit_scenario()
@@ -197,7 +215,6 @@ class Server(Node):
         #### TB1 교통 통제 시작
         #### TB0 촬영 위치로 이동
         """
-        self.set_status(STATUS.DETECTED_FLAG)
         self.get_logger().info("[3/5] Detected...")
 
         # TB1 교통 안내 위치로 이동
@@ -221,6 +238,7 @@ class Server(Node):
         #### TB0 복귀
         #### TB1 교통 통제 종료
         """
+
         self.get_logger().info("[4/5] Dispatch...")
 
         # PCD 촬영
@@ -231,8 +249,8 @@ class Server(Node):
         # TB0 복귀
         point = Point()
         point.x, point.y, point.z = [-1.61, -0.38, 0.0]  # 8번 위치, dock 하기 전 위치
-        self.nav0_pub2.publish(point)
         self.nav0_state = STATUS.NAV_WORKING
+        self.nav0_pub2.publish(point)
 
         # TB1 교통 통제 종료
         self.ui_alarm_pub.publish(self._make_msg(1))  # alarm off
@@ -258,20 +276,18 @@ class Server(Node):
 
     def _nav0_sub_callback(self, msg):
         self.get_logger().info(f"_nav0_sub_callback: {msg.data}")
-        if msg.data == 0:
+        if msg.data != -1:
             self.nav0_state = STATUS.NAV_DONE  # 이동 완료
 
     def _nav1_sub_callback(self, msg):
         self.get_logger().info(f"_nav1_sub_callback: {msg.data}")
-        if msg.data == 0:
+        if msg.data != 0:
             self.nav1_state = STATUS.NAV_DONE  # 이동 완료
-            self.status = STATUS.READY_FLAG
 
     def _cv_suv_detected_callback(self, msg):
         if self.cv_state == 0:  # 최초 감지 1회만 동작
-            self.status = STATUS.DETECTED_FLAG  # 사고 감지 상태
+            self.set_status(STATUS.DETECTED_FLAG)  # 사고 감지 상태
             self.cv_state = 1
-            self.get_logger().info(f"_cv_suv_detected_callback: {msg}")
             self.get_logger().info(f"_cv_suv_detected_callback: Accident Detected!!!")
 
     def _cv_suv_position_callback(self, msg):
