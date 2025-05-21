@@ -54,7 +54,9 @@ class Server(Node):
         self.nav0_state = STATUS.NAV_DONE
         self.nav1_state = STATUS.NAV_DONE
         self.cv_state = 0  # 카메라 촬영 대기 -> 촬영 실행 중 -> 촬영 완료
-        self.cv_position_state = 0  # 대기 -> 촬영 위치 수신 대기 -> 촬영 위치 수신 완료
+        # 촬영 위치 수신 대기 -> 촬영 위치 수신 완료 -> 촬영 완료
+        self.cv_position_state = 0
+        self.dispatch_state = 0  # 복귀 위치 수신 -> 복귀 완료
 
         self.nav0_current_position = 0
         self.nav1_current_position = 0
@@ -153,10 +155,24 @@ class Server(Node):
 
         # 출동 종료 명령 시
         elif self.status == STATUS.DISPATCH_FLAG:
-            self.dispatch()
-            if self.nav0_state == STATUS.NAV_DONE:  # TB0 복귀 포지션 이동 완료
+
+            if (
+                self.dispatch_state == 1 and self.nav0_state == STATUS.NAV_DONE
+            ):  # TB0 복귀 포지션 이동 완료
                 self._dock(0)
                 self.set_status(STATUS.PATROL_FLAG)
+            if self.dispatch_state == 0:
+                self.dispatch_state = 1
+                self.dispatch()
+
+            if self.nav1_state == STATUS.NAV_DONE:
+                self.get_logger().info("aaa")
+            else:
+                self.get_logger().info("bbb")
+            if self.nav0_state == STATUS.NAV_DONE:
+                self.get_logger().info("ccc")
+            else:
+                self.get_logger().info("ddd")
         # 시나리오 종료 시
         elif self.status == STATUS.EXIT_FLAG:
             self.exit_scenario()
@@ -285,12 +301,13 @@ class Server(Node):
 
     def _nav0_sub_callback(self, msg):
         self.get_logger().info(f"_nav0_sub_callback: {msg.data}")
-        if msg.data != -1:
+        if msg.data != -2:
+            self.get_logger().info("???? WHY NOT WOKR?")
             self.nav0_state = STATUS.NAV_DONE  # 이동 완료
 
     def _nav1_sub_callback(self, msg):
         self.get_logger().info(f"_nav1_sub_callback: {msg.data}")
-        if msg.data != 0:
+        if msg.data != -2:
             self.nav1_state = STATUS.NAV_DONE  # 이동 완료
 
     def _cv_suv_detected_callback(self, msg):
