@@ -18,6 +18,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 qos_profile_1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
 qos_profile_5 = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
 qos_profile_10 = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+qos_profile_10_default = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
 # system status
