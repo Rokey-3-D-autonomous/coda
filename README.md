@@ -18,7 +18,9 @@ SLAM 기반 자율주행 로봇 시스템 구성
 
 [지능 -B 최종 영상.webm](https://github.com/user-attachments/assets/579fdd42-cd57-4035-af2e-b0374ae688f1)
 
+<!--
 ![스크린샷](https://github.com/user-attachments/assets/45af568e-68d3-4b58-9b66-4e2a37ec7447)
+-->
 
 </div>
 
