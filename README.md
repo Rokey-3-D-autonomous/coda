@@ -8,7 +8,7 @@ SLAM 기반 자율주행 로봇 시스템 구성
 - **사용 장비**: TurtleBot4(RPLIDAR A1M8, OAK-D Pro)
 - **개발 환경**: Ubuntu 22.04, ROS2 Humble, RTX3060, Colab
 - **주요 기술 스택**: ROS2, AutoSLAM, Nav2, OpenCV, YOLO
-- **기간**: 2025.05.09 ~ 2025.05.22
+- **기간**: 2025.05.16 ~ 2025.05.22
 
 ## 시연 영상
 
