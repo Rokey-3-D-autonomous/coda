@@ -14,11 +14,19 @@ SLAM 기반 자율주행 로봇 시스템 구성
 
 - 영상 링크: [Demo Video](https://youtube.com/shorts/FaUu1ptY77Y?feature=share)
 
+<div align="center">
+
 ![스크린샷](https://github.com/user-attachments/assets/45af568e-68d3-4b58-9b66-4e2a37ec7447)
+
+</div>
 
 ## 시스템 아키텍처
 
+<div align="center">
+
 ![시스템 아키텍처](https://github.com/user-attachments/assets/53a3d17e-96e8-4877-a371-c063a2284c0a)
+
+</div>
 
 ## 프로젝트 기여자
 
@@ -30,6 +38,33 @@ SLAM 기반 자율주행 로봇 시스템 구성
 - 최초인: choinchoi0331@gmail.com
 - 홍지원: jw1122.h@gmail.com
 
-## 참고 자료
+## 교육과정 및 참고 자료
+
+### 교육과정
+
+<div align="center">
+
+| 주차 | 기간 | 구분 | 강의실 |
+| --- | --- | --- | --- |
+| <1주차> | 2025.05.09(금) ~ 2025.05.15(목) | 지능-1(B) | * 본관 : A-2호 |
+| <2주차> | 2025.05.16(금) ~ 2025.05.22(목) | 지능-1(B) | * 본관 : A-2호 |
+
+| **차시** | **구분** | **세부사항** | **평가** | **팀구성** |
+| --- | --- | --- | --- | --- |
+| 1 | 프로젝트 계획 및 환경 구축 | 시스템 개발 프로세스의 이해, 개발 환경 구축 | O | 4인 1팀 |
+| 2 | 기술 탐색 및 검증 | AI VISION 기술 탐색 및 검증_Object Detection |  | 4인 1팀 |
+| 3 | 기술 탐색 및 검증 | AI VISION 기술 탐색 및 검증_Depth 활용 | O | 4인 1팀 |
+| 4 | 기술 탐색 및 검증 | AMR 제어 기술 탐색 및 검증_SLAM & Navigation |  | 4인 1팀 |
+| 5 | 기술 탐색 및 검증 | AMR 제어 기술 탐색 및 검증_통합 Multi-Robot | O | 4인 1팀 |
+| 6 | 프로젝트 설계 | 시스템 설계 및 환경 구성 |  | 2개 팀  |
+| 7 | 개발 | 기능 구현 및 Unit Test |  | 2개 팀 |
+| 8 | 개발 | 기능 구현 및 Unit Test |  | 2개 팀 |
+| 9 | 개발 | 통합 시스템 구축 및 테스트 |  | 2개 팀 |
+| 10 | 프로젝트 발표 | 프로젝트 발표 및 시연, 산출물 정리, 기술 컨퍼런스 | O | 2개 팀 |
+
+</div>
+
+### 참고자료
 
 - https://github.com/turtlebot/turtlebot4
+- https://docs.luxonis.com/
